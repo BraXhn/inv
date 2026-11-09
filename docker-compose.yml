@@ -2,8 +2,8 @@
 services:
   verkstad:
     build: .
-    image: verkstad:latest
-    container_name: verkstad
+    image: braxhn-verkstad:latest
+    container_name: braxhn-verkstad
     restart: unless-stopped
     ports:
       - "8080:8080"          # LAN-åtkomst. Ta bort om du bara vill nå den via tunneln.
@@ -19,14 +19,14 @@ services:
       # SMTP_PORT: "587"
       # SMTP_USER: du@gmail.com
       # SMTP_PASSWORD: app-losenord
-      # SMTP_FROM: "Garageverkstaden <du@gmail.com>"
+      # SMTP_FROM: "BraXhn Verkstad <du@gmail.com>"
       # NOTIFY_EMAIL: du@gmail.com
 
   # Cloudflare-tunnel i samma stack (hoppa över om du redan kör cloudflared i Unraid).
   # Peka publik hostname i Cloudflare Zero Trust på: http://verkstad:8080
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: verkstad-tunnel
+    container_name: braxhn-verkstad-tunnel
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:

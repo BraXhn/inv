@@ -26,7 +26,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request,os; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','8080'), timeout=4)" || exit 1
 
-LABEL org.opencontainers.image.title="Verkstad" \
+LABEL org.opencontainers.image.title="BraXhn Verkstad" \
       org.opencontainers.image.description="Arbetsordrar, bokningar och lager för cykel- och elektronikverkstad"
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

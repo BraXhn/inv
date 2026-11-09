@@ -1,4 +1,4 @@
-# Verkstad
+# BraXhn Verkstad
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
@@ -30,7 +30,7 @@ Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad.
 1. Koden ligger i `BraXhn/inv`.
 2. GitHub Actions kör testerna och publicerar en image till `ghcr.io/braxhn/inv:latest`.
    - Kontrollera under *Packages → inv → Package settings* att paketet är publikt, annars måste Unraid logga in med `docker login ghcr.io` och en PAT med `read:packages`.
-3. Kopiera `unraid/verkstad.xml` till `/boot/config/plugins/dockerMan/templates-user/my-verkstad.xml` (redan ifylld för `BraXhn`).
+3. Kopiera `unraid/braxhn-verkstad.xml` till `/boot/config/plugins/dockerMan/templates-user/my-BraXhn-Verkstad.xml` (redan ifylld för `BraXhn`).
 4. I Unraid: **Docker → Add Container → Template: BraXhn-Verkstad**. Fyll i lösenord och publik adress och klicka Apply.
 
 ### Alternativ B: bygg lokalt med Compose Manager

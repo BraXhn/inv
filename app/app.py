@@ -1,4 +1,4 @@
-"""Verkstad – arbetsordrar, bokningar och lager för en hobbyverkstad (cykel + elektronik).
+"""BraXhn Verkstad – arbetsordrar, bokningar och lager för en hobbyverkstad (cykel + elektronik).
 
 En enda container: Flask + SQLite. Publik del (bokning, status) och admin-del (allt annat).
 """
@@ -63,7 +63,7 @@ SV_MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt
 TAG_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 
 DEFAULT_SETTINGS = {
-    "business_name": "Garageverkstaden",
+    "business_name": "BraXhn Verkstad",
     "contact_email": "",
     "contact_phone": "",
     "address": "",
@@ -675,7 +675,7 @@ def calendar_feed(token):
     def esc(v):
         return (v or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
-    out = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//verkstad//SV", "X-WR-CALNAME:Verkstad – bokningar"]
+    out = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//braxhn-verkstad//SV", "X-WR-CALNAME:BraXhn Verkstad – bokningar"]
     for b in rows:
         start = datetime.fromisoformat(b["slot_start"])
         end = start + timedelta(minutes=step)

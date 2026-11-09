@@ -1,4 +1,4 @@
-name: Test och publicera image
+name: BraXhn Verkstad – test och image
 
 on:
   push:

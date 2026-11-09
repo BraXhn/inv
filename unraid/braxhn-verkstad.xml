@@ -20,7 +20,7 @@
   <Config Name="SMTP-port" Target="SMTP_PORT" Default="587" Mode="" Description="587 (STARTTLS) eller 465 (SSL)" Type="Variable" Display="advanced" Required="false" Mask="false">587</Config>
   <Config Name="SMTP-användare" Target="SMTP_USER" Default="" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="SMTP-lösenord" Target="SMTP_PASSWORD" Default="" Mode="" Description="App-lösenord" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
-  <Config Name="Avsändare" Target="SMTP_FROM" Default="" Mode="" Description="T.ex. Garageverkstaden &lt;du@gmail.com&gt;" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Avsändare" Target="SMTP_FROM" Default="" Mode="" Description="T.ex. BraXhn Verkstad &lt;du@gmail.com&gt;" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Notiser till" Target="NOTIFY_EMAIL" Default="" Mode="" Description="Din e-post för nya bokningar och godkända offerter" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Antal backuper" Target="BACKUP_KEEP" Default="14" Mode="" Description="Dagliga backuper som sparas" Type="Variable" Display="advanced" Required="false" Mask="false">14</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
