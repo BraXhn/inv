@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Inköpslista{% endblock %}
+{% block content %}
+<div class="spread"><h1>Inköpslista</h1><button class="ghost no-print" data-print>Skriv ut</button></div>
+{% set ns = namespace(sup=None) %}
+<div class="card">
+{% for p in rows %}
+  {% if p.supplier != ns.sup %}{% set ns.sup = p.supplier %}<h3>{{ p.supplier or 'Ingen leverantör angiven' }}</h3>{% endif %}
+  <p>☐ <a href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a>{% if p.sku %} <span class="mono small">{{ p.sku }}</span>{% endif %}
+    – har {{ p.qty|qty }}, min {{ p.min_qty|qty }} {{ p.unit }}
+    {% if p.supplier_url %}<a class="no-print small" href="{{ p.supplier_url }}" target="_blank" rel="noopener">beställ ↗</a>{% endif %}</p>
+{% else %}
+  <p class="muted">Inget behöver beställas.</p>
+{% endfor %}
+</div>
+{% endblock %}

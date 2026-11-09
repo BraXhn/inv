@@ -1,0 +1,13 @@
+{% extends "public/_layout.html" %}
+{% block title %}Logga in{% endblock %}
+{% block content %}
+<div class="public-head"><h1>{{ S.business_name }}</h1></div>
+<form method="post" class="card">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="{{ next }}">
+  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+  <label for="u">Användarnamn</label><input id="u" type="text" name="username" autocomplete="username" required autofocus>
+  <label for="p">Lösenord</label><input id="p" type="password" name="password" autocomplete="current-password" required>
+  <p><button>Logga in</button></p>
+</form>
+{% endblock %}

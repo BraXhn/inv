@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Ny del{% endblock %}
+{% block content %}
+<h1>Ny del</h1>
+<form method="post" class="card">
+  {{ csrf() }}
+  {% include "admin/_part_fields.html" %}
+  <p class="row"><button>Spara</button><button class="ghost" name="next" value="ny">Spara och lägg till nästa</button></p>
+</form>
+{% endblock %}

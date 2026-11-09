@@ -1,0 +1,27 @@
+{% macro tagbox(code, title='NFC / QR') %}
+{% set url = tag_url(code) %}
+<div class="card qrbox">
+  <h2>{{ title }}</h2>
+  {{ qr_svg(url) }}
+  <p class="taglink mono">{{ url }}</p>
+  <p class="row center"><button class="ghost small" data-copy="{{ url }}">Kopiera länk</button></p>
+  <p class="small muted">Skriv länken till en NFC-tagg med appen NFC Tools (”Lägg till post → URL”), eller skriv ut QR-koden. Taggen öppnar den här sidan efter inloggning.</p>
+</div>
+{% endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="_csrf" value="{{ csrf_token() }}">{% endmacro %}
+
+{% macro wo_table(rows, show_customer=True) %}
+<div class="table-wrap"><table>
+  <tr><th>Nr</th><th>Objekt</th>{% if show_customer %}<th>Kund</th>{% endif %}<th>Status</th><th>Uppdaterad</th></tr>
+  {% for w in rows %}
+  <tr>
+    <td class="nowrap"><a href="{{ url_for('wo_detail', wid=w.id) }}">{{ w.number }}</a></td>
+    <td>{{ w.item }} <span class="muted small">{{ w.category }}</span></td>
+    {% if show_customer %}<td>{{ w.customer_name }}</td>{% endif %}
+    <td><span class="pill {{ w.status }}">{{ WO_STATUS_LABEL[w.status] }}</span></td>
+    <td class="small muted nowrap">{{ w.updated_at|dt }}</td>
+  </tr>
+  {% else %}<tr><td colspan="5" class="muted">Inga arbetsordrar.</td></tr>{% endfor %}
+</table></div>
+{% endmacro %}

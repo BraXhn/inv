@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf, wo_table %}
+{% block title %}{{ c.name }}{% endblock %}
+{% block content %}
+<div class="spread"><h1>{{ c.name }}</h1><a class="btn" href="{{ url_for('wo_new', kund=c.id) }}">+ Ny arbetsorder</a></div>
+<div class="grid-2">
+  <div>
+    <div class="card"><h2>Arbetsordrar</h2>{{ wo_table(wos, show_customer=False) }}</div>
+    <div class="card"><h2>Bokningar</h2>
+      {% for b in bookings %}<p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> {{ b.slot_start|dt }} – {{ b.item }}</p>
+      {% else %}<p class="muted">Inga bokningar.</p>{% endfor %}
+    </div>
+  </div>
+  <div>
+    {% if c.anonymized %}
+      <div class="card"><p class="muted">Kunden är anonymiserad.</p></div>
+    {% else %}
+    <form method="post" class="card">
+      {{ csrf() }}
+      <h2>Uppgifter</h2>
+      <label>Namn</label><input type="text" name="name" value="{{ c.name }}" maxlength="120" required>
+      <label>E-post</label><input type="email" name="email" value="{{ c.email or '' }}" maxlength="200">
+      <label>Telefon</label><input type="tel" name="phone" value="{{ c.phone or '' }}" maxlength="40">
+      <label>Anteckningar</label><textarea name="notes" maxlength="3000">{{ c.notes or '' }}</textarea>
+      <p><button>Spara</button></p>
+    </form>
+    <div class="card">
+      <h2>GDPR</h2>
+      <p class="small muted">Kund sedan {{ c.created_at|d }} · senast aktiv {{ (c.last_activity or c.created_at)|d }}</p>
+      <p><a class="btn ghost small" href="{{ url_for('customer_export', cid=c.id) }}">Exportera kunddata (JSON)</a></p>
+      <form method="post" action="{{ url_for('customer_anonymize', cid=c.id) }}">{{ csrf() }}
+        <button class="danger small" data-confirm="Anonymisera kunden? Personuppgifterna raderas permanent.">Radera personuppgifter</button></form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Inställningar{% endblock %}
+{% block content %}
+<h1>Inställningar</h1>
+<form method="post" class="card">
+  {{ csrf() }}
+  <h2>Verkstaden</h2>
+  <div class="fields">
+    <div><label>Namn</label><input type="text" name="business_name" value="{{ S.business_name }}"></div>
+    <div><label>Adress (visas för kunder)</label><input type="text" name="address" value="{{ S.address }}"></div>
+    <div><label>Kontakt-e-post</label><input type="email" name="contact_email" value="{{ S.contact_email }}"></div>
+    <div><label>Telefon</label><input type="tel" name="contact_phone" value="{{ S.contact_phone }}"></div>
+    <div><label>Publik adress (din Cloudflare-domän)</label><input type="url" name="public_url" value="{{ S.public_url }}" placeholder="https://verkstad.exempel.se"></div>
+    <div><label>Timpris (kr)</label><input type="number" name="labor_rate" value="{{ S.labor_rate }}" min="0"></div>
+  </div>
+  <p class="small muted">Publik adress används i NFC-taggar, QR-koder och e-post. Sätt den innan du skriver taggar – annars pekar de på den adress du råkar använda.</p>
+  <label>Kategorier (kommaseparerade)</label><input type="text" name="categories" value="{{ S.categories }}">
+  <p class="small muted">Kategorierna ”Cykel” och ”Elektronik” har inbyggda inlämningschecklistor.</p>
+
+  <h2 class="mt">Bokning</h2>
+  <label class="check"><input type="checkbox" name="booking_enabled" value="1" {{ 'checked' if S.booking_enabled == '1' }}> <span>Publik bokning är öppen</span></label>
+  <label>Introtext</label><textarea name="booking_intro">{{ S.booking_intro }}</textarea>
+  <label>Öppna dagar</label>
+  <div class="row">{% set od = S.open_days.split(',') %}{% for n, d in days %}<label class="check"><input type="checkbox" name="open_days" value="{{ n }}" {{ 'checked' if n|string in od }}> <span>{{ d }}</span></label>{% endfor %}</div>
+  <div class="fields">
+    <div><label>Från</label><input type="text" name="open_from" value="{{ S.open_from }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
+    <div><label>Till</label><input type="text" name="open_to" value="{{ S.open_to }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
+    <div><label>Minuter per tid</label><input type="number" name="slot_minutes" value="{{ S.slot_minutes }}" min="10"></div>
+    <div><label>Bokningar per tid</label><input type="number" name="slot_capacity" value="{{ S.slot_capacity }}" min="1"></div>
+    <div><label>Dagar framåt</label><input type="number" name="days_ahead" value="{{ S.days_ahead }}" min="1" max="120"></div>
+    <div><label>Minsta framförhållning (timmar)</label><input type="number" name="min_notice_hours" value="{{ S.min_notice_hours }}" min="0"></div>
+  </div>
+  <label>Stängda datum (ÅÅÅÅ-MM-DD, kommaseparerade)</label><input type="text" name="blocked_dates" value="{{ S.blocked_dates }}" placeholder="2026-12-24,2026-12-31">
+  <label class="check"><input type="checkbox" name="new_calendar_token" value="1"> <span>Byt hemlig kalenderlänk</span></label>
+
+  <h2 class="mt">Personuppgifter</h2>
+  <div class="fields"><div><label>Anonymisera inaktiva kunder efter (månader)</label><input type="number" name="retention_months" value="{{ S.retention_months }}" min="1"></div></div>
+  <p><button>Spara inställningar</button></p>
+</form>
+
+<div class="grid">
+  <div class="card">
+    <h2>Gallring (GDPR)</h2>
+    <p class="small">Anonymiserar kunder utan aktivitet på {{ S.retention_months }} månader och utan öppna ärenden.</p>
+    <form method="post" action="{{ url_for('purge_old') }}">{{ csrf() }}<button class="danger small" data-confirm="Kör gallring nu?">Kör gallring</button></form>
+  </div>
+  <div class="card">
+    <h2>Backup</h2>
+    <p class="small">Automatisk backup varje dygn till <span class="mono">/data/backups</span>. Ingår i Unraids appdata-backup.</p>
+    <form method="post" action="{{ url_for('backup_now') }}">{{ csrf() }}<button class="small">Ta backup nu</button></form>
+    <ul class="small">{% for b in backups %}<li><a href="{{ url_for('backup_download', name=b) }}">{{ b }}</a></li>{% endfor %}</ul>
+  </div>
+  <div class="card">
+    <h2>System</h2>
+    <p class="small">Version {{ VERSION }}<br>E-post: {{ 'aktiverad' if mail else 'inte konfigurerad (SMTP_HOST saknas)' }}</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Ny arbetsorder{% endblock %}
+{% block content %}
+<h1>Ny arbetsorder</h1>
+<form method="post" class="card">
+  {{ csrf() }}
+  <h2>Kund</h2>
+  <label for="customer_id">Befintlig kund</label>
+  <select id="customer_id" name="customer_id">
+    <option value="">– Ny kund (fyll i nedan) –</option>
+    {% for c in customers %}<option value="{{ c.id }}" {{ 'selected' if preselect == c.id }}>{{ c.name }}{% if c.phone %} ({{ c.phone }}){% endif %}</option>{% endfor %}
+  </select>
+  <div class="fields">
+    <div><label for="new_name">Namn (ny kund)</label><input id="new_name" type="text" name="new_name" maxlength="120"></div>
+    <div><label for="new_email">E-post</label><input id="new_email" type="email" name="new_email" maxlength="200"></div>
+    <div><label for="new_phone">Telefon</label><input id="new_phone" type="tel" name="new_phone" maxlength="40"></div>
+  </div>
+
+  <h2 class="mt">Objekt</h2>
+  <div class="fields">
+    <div><label for="category">Typ</label><select id="category" name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>
+    <div><label for="item">Märke och modell</label><input id="item" type="text" name="item" maxlength="200" required></div>
+    <div><label for="serial">Ram-/serienummer</label><input id="serial" type="text" name="serial" maxlength="100"></div>
+    <div><label for="due_date">Utlovat klart</label><input id="due_date" type="date" name="due_date"></div>
+  </div>
+  <label for="accessories">Medlämnat (laddare, lås, väska …)</label><input id="accessories" type="text" name="accessories" maxlength="500">
+  <label for="problem">Felbeskrivning / uppdrag</label><textarea id="problem" name="problem" maxlength="5000"></textarea>
+  <p><button>Skapa arbetsorder</button></p>
+</form>
+{% endblock %}

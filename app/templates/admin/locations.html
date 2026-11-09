@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Platser{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1>Platser</h1>
+  <div class="row">
+    <a class="btn ghost small" href="{{ url_for('labels', typ='platser') }}">Etiketter: platser</a>
+    <a class="btn ghost small" href="{{ url_for('labels', typ='delar') }}">Etiketter: delar</a>
+    <a class="btn ghost small" href="{{ url_for('labels', typ='ao') }}">Etiketter: arbetsordrar</a>
+  </div>
+</div>
+<form method="post" class="card fields">
+  {{ csrf() }}
+  <div><label>Namn</label><input type="text" name="name" maxlength="100" placeholder="t.ex. Hylla B · Låda 3" required></div>
+  <div><label>Beskrivning</label><input type="text" name="description" maxlength="500" placeholder="Bromsbelägg och skivor"></div>
+  <div><label>&nbsp;</label><button>Skapa plats</button></div>
+</form>
+<p class="small muted">Tips: en plats per låda eller hyllfack. Sätt en NFC-tagg eller QR-etikett på varje – skanna för att se innehållet direkt.</p>
+<div class="card table-wrap"><table>
+  <tr><th>Plats</th><th>Beskrivning</th><th class="right">Delar</th><th class="right">Inlämnade objekt</th></tr>
+  {% for l in rows %}<tr><td><a href="{{ url_for('location_detail', lid=l.id) }}">{{ l.name }}</a></td><td>{{ l.description or '' }}</td><td class="right">{{ l.n }}</td><td class="right">{{ l.nwo }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Inga platser än.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="{% block robots %}noindex{% endblock %}">
+<title>{% block title %}{{ S.business_name }}{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ VERSION }}">
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+</head>
+<body class="{% block bodyclass %}{% endblock %}">
+{% if is_admin and request.path.startswith(('/admin', '/t/')) %}
+<header class="topbar no-print">
+  <a class="brand" href="{{ url_for('dashboard') }}">{{ S.business_name }}</a>
+  <nav>
+    <a href="{{ url_for('dashboard') }}" class="{{ 'on' if request.endpoint == 'dashboard' }}">Översikt</a>
+    <a href="{{ url_for('wo_list') }}" class="{{ 'on' if request.endpoint and request.endpoint.startswith('wo_') }}">Arbetsordrar</a>
+    <a href="{{ url_for('bookings_list') }}" class="{{ 'on' if request.endpoint and request.endpoint.startswith('booking') }}">Bokningar{% if nav_new_bookings %} <span class="badge">{{ nav_new_bookings }}</span>{% endif %}</a>
+    <a href="{{ url_for('customers_list') }}" class="{{ 'on' if request.endpoint and request.endpoint.startswith('customer') }}">Kunder</a>
+    <a href="{{ url_for('parts_list') }}" class="{{ 'on' if request.endpoint and (request.endpoint.startswith('part') or request.endpoint == 'shopping_list') }}">Lager</a>
+    <a href="{{ url_for('locations_list') }}" class="{{ 'on' if request.endpoint and (request.endpoint.startswith('location') or request.endpoint == 'labels') }}">Platser</a>
+    <a href="{{ url_for('settings_page') }}" class="{{ 'on' if request.endpoint == 'settings_page' }}">Inställningar</a>
+  </nav>
+  <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="link">Logga ut</button></form>
+</header>
+{% endif %}
+<main class="{% block mainclass %}wrap{% endblock %}">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }} no-print">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+{% block footer %}{% endblock %}
+<script src="{{ url_for('static', filename='app.js') }}?v={{ VERSION }}"></script>
+</body>
+</html>

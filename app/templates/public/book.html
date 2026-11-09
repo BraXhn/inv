@@ -1,0 +1,64 @@
+{% extends "public/_layout.html" %}
+{% block robots %}index{% endblock %}
+{% block title %}Boka tid – {{ S.business_name }}{% endblock %}
+{% block content %}
+<div class="public-head">
+  <h1>{{ S.business_name }}</h1>
+  <p class="muted">{{ S.booking_intro }}</p>
+</div>
+
+{% if errors %}<ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+
+<form method="post" class="card" novalidate>
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <div class="hp" aria-hidden="true"><label>Lämna tomt <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+
+  <h2>1. Vad gäller det?</h2>
+  <div class="fields">
+    <div>
+      <label for="category">Typ</label>
+      <select id="category" name="category" required>
+        <option value="">Välj…</option>
+        {% for c in categories %}<option {{ 'selected' if form.get('category') == c }}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="item">Märke och modell</label>
+      <input id="item" type="text" name="item" maxlength="200" value="{{ form.get('item', '') }}" placeholder="t.ex. Scott Spark 930 / Marantz PM6006" required>
+    </div>
+  </div>
+  <label for="description">Beskriv felet eller vad du vill ha gjort</label>
+  <textarea id="description" name="description" maxlength="3000" required>{{ form.get('description', '') }}</textarea>
+
+  <h2 class="mt">2. Välj tid för inlämning</h2>
+  {% if slots %}
+  <div class="slots">
+    {% for day, times in slots %}
+    {% set has_sel = form.get('slot', '')[:10] == day.isoformat() %}
+    <details class="slotday" {{ 'open' if loop.index <= 2 or has_sel }}>
+      <summary>{{ day|d }} <span class="muted small">· {{ times|length }} lediga</span></summary>
+      <div class="opts">
+        {% for t in times %}
+        <input type="radio" name="slot" id="s{{ t|replace(':', '')|replace('-', '') }}" value="{{ t }}" {{ 'checked' if form.get('slot') == t }} required>
+        <label for="s{{ t|replace(':', '')|replace('-', '') }}">{{ t[11:16] }}</label>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Det finns inga lediga tider just nu. Titta igen om några dagar{% if S.contact_email %} eller mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
+  {% endif %}
+
+  <h2>3. Dina uppgifter</h2>
+  <div class="fields">
+    <div><label for="name">Namn</label><input id="name" type="text" name="name" maxlength="120" autocomplete="name" value="{{ form.get('name', '') }}" required></div>
+    <div><label for="email">E-post</label><input id="email" type="email" name="email" maxlength="200" autocomplete="email" value="{{ form.get('email', '') }}" required></div>
+    <div><label for="phone">Telefon (valfritt)</label><input id="phone" type="tel" name="phone" maxlength="40" autocomplete="tel" value="{{ form.get('phone', '') }}"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="consent" value="1" {{ 'checked' if form.get('consent') }} required>
+    <span>Jag godkänner att mina uppgifter sparas för att hantera bokningen och reparationen. <a href="{{ url_for('privacy') }}" target="_blank">Läs mer</a></span></label>
+  <p><button type="submit" {{ 'disabled' if not slots }}>Skicka bokningsförfrågan</button></p>
+  <p class="small muted">Du får en länk där du kan följa bokningen och senare reparationens status.</p>
+</form>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import wo_table %}
+{% block title %}Arbetsordrar{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1>Arbetsordrar</h1>
+  <a class="btn" href="{{ url_for('wo_new') }}">+ Ny arbetsorder</a>
+</div>
+<form class="card row" method="get">
+  <input type="search" name="q" value="{{ search }}" placeholder="Sök nummer, objekt, serienummer, kund…">
+  <select name="status">
+    <option value="oppna" {{ 'selected' if status_filter == 'oppna' }}>Alla öppna</option>
+    <option value="alla" {{ 'selected' if status_filter == 'alla' }}>Alla</option>
+    {% for k, l in WO_STATUSES %}<option value="{{ k }}" {{ 'selected' if status_filter == k }}>{{ l }}</option>{% endfor %}
+  </select>
+  <button>Filtrera</button>
+</form>
+<div class="card">{{ wo_table(rows) }}</div>
+{% endblock %}

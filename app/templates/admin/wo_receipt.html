@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ wo.number }} – {{ 'Specifikation' if kind == 'faktura' else 'Inlämningskvitto' }}{% endblock %}
+{% block content %}
+<p class="no-print row"><a class="btn ghost small" href="{{ url_for('wo_detail', wid=wo.id) }}">← Tillbaka</a> <button class="small" data-print>Skriv ut</button></p>
+<div class="receipt">
+  <div class="spread">
+    <div>
+      <h1>{{ 'Specifikation' if kind == 'faktura' else 'Inlämningskvitto' }}</h1>
+      <b>{{ S.business_name }}</b><br>
+      <span class="small">{{ S.address }}{% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}{% if S.contact_email %} · {{ S.contact_email }}{% endif %}</span>
+    </div>
+    <div class="qrbox">{{ qr_svg(status_url) }}<div class="small">Följ ärendet</div></div>
+  </div>
+  <table>
+    <tr><th>Ärende</th><td class="mono">{{ wo.number }}</td><th>Datum</th><td>{{ wo.created_at[:10] }}</td></tr>
+    <tr><th>Kund</th><td>{{ wo.customer_name }}</td><th>Kontakt</th><td>{{ wo.customer_phone or '' }} {{ wo.customer_email or '' }}</td></tr>
+    <tr><th>Objekt</th><td>{{ wo.category }}: {{ wo.item }}</td><th>Ser.nr</th><td>{{ wo.serial or '–' }}</td></tr>
+    <tr><th>Medlämnat</th><td colspan="3">{{ wo.accessories or '–' }}</td></tr>
+    <tr><th>Uppdrag</th><td colspan="3">{{ wo.problem or '' }}</td></tr>
+    {% if kind == 'faktura' and wo.diagnosis %}<tr><th>Åtgärd</th><td colspan="3">{{ wo.diagnosis }}</td></tr>{% endif %}
+  </table>
+
+  {% if kind == 'faktura' %}
+  <h3>Kostnader</h3>
+  <table>
+    <tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th><th class="right">Summa</th></tr>
+    {% for l in lines %}<tr><td>{{ l.description }}</td><td class="right">{{ l.qty|qty }}</td><td class="right">{{ l.unit_price|money }}</td><td class="right">{{ (l.qty*l.unit_price)|money }}</td></tr>{% endfor %}
+    {% if totals.labor %}<tr><td>Arbete</td><td class="right">{{ '%.2f'|format(totals.hours)|replace('.', ',') }} h</td><td class="right">{{ wo.labor_rate|money }}</td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
+    <tr class="sum"><th colspan="3">Att betala</th><th class="right">{{ totals.total|money }}</th></tr>
+  </table>
+  {% else %}
+  <p class="small">Objektet förvaras på kundens risk utöver normal aktsamhet. Vi kontaktar dig med offert innan arbete utöver avtalat uppdrag utförs. Ej hämtade objekt förvaras i 3 månader efter att de meddelats klara.
+  {% if wo.category == 'Elektronik' %} Data på lagringsmedier kan gå förlorad vid reparation – säkerhetskopiera före inlämning.{% endif %}</p>
+  <div class="sign"><div>Kundens underskrift</div><div>Mottaget av</div></div>
+  {% endif %}
+</div>
+{% endblock %}

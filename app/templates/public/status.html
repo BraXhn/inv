@@ -1,0 +1,62 @@
+{% extends "public/_layout.html" %}
+{% block title %}Status – {{ S.business_name }}{% endblock %}
+{% block content %}
+<div class="public-head"><h1>{{ S.business_name }}</h1></div>
+
+{% if is_new %}
+<div class="flash">Tack! Din bokningsförfrågan är mottagen. Spara den här sidan som bokmärke – här ser du alltid aktuell status.</div>
+{% endif %}
+
+{% if wo %}
+  {% set order = ['inlamnad','felsokning','offert','vantar_delar','pagar','klar','utlamnad'] %}
+  {% set idx = order.index(wo.status) if wo.status in order else -1 %}
+  <div class="card">
+    <div class="spread"><h2>{{ wo.item }}</h2><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span></div>
+    <p class="muted small">Ärende {{ wo.number }} · inlämnad {{ wo.created_at|d }}</p>
+    {% if idx >= 0 %}<div class="steps" aria-hidden="true">{% for s in order %}<span class="{{ 'done' if loop.index0 <= idx }}"></span>{% endfor %}</div>{% endif %}
+
+    {% if wo.status == 'offert' %}
+      <div class="card">
+        <h3>Offert: {{ wo.price_quote|money }}</h3>
+        {% if wo.diagnosis %}<p>{{ wo.diagnosis }}</p>{% endif %}
+        <form method="post" action="{{ url_for('approve_quote', token=token) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">Godkänn offerten</button>
+        </form>
+        <p class="small muted">Vill du inte gå vidare? Kontakta oss{% if S.contact_phone %} på {{ S.contact_phone }}{% endif %}.</p>
+      </div>
+    {% endif %}
+
+    {% if wo.status == 'klar' %}<div class="flash">Klart! Du kan hämta {{ wo.item }}{% if S.address %} på {{ S.address }}{% endif %}.</div>{% endif %}
+
+    {% if lines or totals.labor %}
+    <h3>Kostnad hittills</h3>
+    <table>
+      {% for l in lines %}<tr><td>{{ l.description }}</td><td class="right nowrap">{{ l.qty|qty }} × {{ l.unit_price|money }}</td></tr>{% endfor %}
+      {% if totals.labor %}<tr><td>Arbete ({{ '%.1f'|format(totals.hours)|replace('.', ',') }} h)</td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
+      <tr class="sum"><th>Totalt</th><th class="right">{{ totals.total|money }}</th></tr>
+    </table>
+    {% endif %}
+
+    {% if events %}
+    <h3>Händelser</h3>
+    <ul class="timeline">{% for e in events %}<li><span class="small muted">{{ e.created_at|dt }}</span><br>{{ e.text }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+{% elif booking %}
+  <div class="card">
+    <div class="spread"><h2>Bokning</h2><span class="pill {{ booking.status }}">{{ BOOKING_STATUSES[booking.status] }}</span></div>
+    <p><b>{{ booking.slot_start|dt }}</b></p>
+    <p>{{ booking.category }} – {{ booking.item }}</p>
+    {% if booking.status == 'ny' %}<p class="muted">Vi bekräftar tiden så snart vi kan.</p>{% endif %}
+    {% if booking.status == 'bekraftad' %}<p>Välkommen{% if S.address %} till {{ S.address }}{% endif %}!</p>{% endif %}
+    {% if booking.status in ('ny', 'bekraftad') %}
+    <form method="post" action="{{ url_for('cancel_booking', token=token) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="danger small" data-confirm="Vill du avboka tiden?">Avboka</button>
+    </form>
+    {% endif %}
+    {% if booking.status in ('avbojd', 'avbokad') %}<p><a class="btn" href="{{ url_for('book') }}">Boka en ny tid</a></p>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

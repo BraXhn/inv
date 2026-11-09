@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Etiketter{% endblock %}
+{% block content %}
+<div class="spread no-print">
+  <h1>Etiketter – {{ {'platser': 'platser', 'delar': 'delar', 'ao': 'öppna arbetsordrar'}[kind] }}</h1>
+  <button data-print>Skriv ut</button>
+</div>
+<p class="small muted no-print">Skriv ut på etikettark eller vanligt papper och tejpa. Samma länk kan skrivas till en NFC-tagg – sätt taggen bakom etiketten.</p>
+<div class="labels">
+  {% for title, sub, code in items %}
+  <div class="label">{{ qr_svg(tag_url(code)) }}<div><b>{{ title }}</b><span>{{ sub }}</span><br><span class="mono">{{ code }}</span></div></div>
+  {% else %}<p class="muted">Inget att skriva ut.</p>{% endfor %}
+</div>
+{% endblock %}

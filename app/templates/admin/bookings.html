@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Bokningar{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1>Bokningar</h1>
+  <div class="row">
+    <a class="btn {{ '' if show != 'alla' else 'ghost' }} small" href="{{ url_for('bookings_list') }}">Aktuella</a>
+    <a class="btn {{ '' if show == 'alla' else 'ghost' }} small" href="{{ url_for('bookings_list', visa='alla') }}">Alla</a>
+  </div>
+</div>
+
+{% for b in rows %}
+<div class="card">
+  <div class="spread">
+    <div><b>{{ b.slot_start|dt }}</b> <span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span></div>
+    <div class="small muted">Inkom {{ b.created_at|dt }}</div>
+  </div>
+  <p><b>{{ b.category }}: {{ b.item }}</b><br>{{ b.description }}</p>
+  <p class="small"><a href="{{ url_for('customer_detail', cid=b.customer_id) }}">{{ b.name }}</a>
+    {% if b.email %} · <a href="mailto:{{ b.email }}">{{ b.email }}</a>{% endif %}
+    {% if b.phone %} · <a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% endif %}</p>
+  <div class="row">
+    {% if b.status == 'ny' %}
+      <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta</button></form>
+    {% endif %}
+    {% if b.status in ('ny', 'bekraftad') %}
+      <form method="post" action="{{ url_for('booking_to_wo', bid=b.id) }}" class="inline">{{ csrf() }}<button class="small ghost">Lämnats in → arbetsorder</button></form>
+      <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="row">{{ csrf() }}
+        <input type="hidden" name="action" value="avboj">
+        <input type="text" name="reason" placeholder="Anledning (skickas till kunden)" maxlength="500">
+        <button class="small danger" data-confirm="Avböja bokningen?">Avböj</button>
+      </form>
+    {% endif %}
+    {% if b.work_order_id %}<a class="btn small ghost" href="{{ url_for('wo_detail', wid=b.work_order_id) }}">Öppna arbetsorder</a>{% endif %}
+  </div>
+</div>
+{% else %}
+<p class="muted">Inga bokningar.</p>
+{% endfor %}
+
+<div class="card">
+  <h2>Prenumerera i din kalender</h2>
+  <p class="small">Lägg till den här länken som prenumererad kalender i telefonen (iOS: Inställningar → Kalender → Konton → Lägg till → Annat → Prenumererad kalender). Obekräftade tider visas med prefix.</p>
+  <p class="mono taglink">{{ cal_url }}</p>
+  <button class="ghost small" data-copy="{{ cal_url }}">Kopiera länk</button>
+  <p class="small muted">Länken är hemlig. Byt den under Inställningar om den läckt.</p>
+</div>
+{% endblock %}

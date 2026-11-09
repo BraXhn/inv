@@ -1,0 +1,36 @@
+# Alternativ till Unraid-mallen: kör med Compose Manager-pluginet eller `docker compose up -d --build`.
+services:
+  verkstad:
+    build: .
+    image: verkstad:latest
+    container_name: verkstad
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # LAN-åtkomst. Ta bort om du bara vill nå den via tunneln.
+    volumes:
+      - /mnt/user/appdata/verkstad:/data
+    environment:
+      TZ: Europe/Stockholm
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: byt-mig-till-nagot-langt     # BYT!
+      PUBLIC_URL: https://verkstad.dindoman.se      # din Cloudflare-adress
+      # Valfritt – e-post till kunder och dig:
+      # SMTP_HOST: smtp.gmail.com
+      # SMTP_PORT: "587"
+      # SMTP_USER: du@gmail.com
+      # SMTP_PASSWORD: app-losenord
+      # SMTP_FROM: "Garageverkstaden <du@gmail.com>"
+      # NOTIFY_EMAIL: du@gmail.com
+
+  # Cloudflare-tunnel i samma stack (hoppa över om du redan kör cloudflared i Unraid).
+  # Peka publik hostname i Cloudflare Zero Trust på: http://verkstad:8080
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: verkstad-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: klistra-in-token-fran-cloudflare
+    depends_on:
+      - verkstad
+    profiles: ["tunnel"]     # starta med: docker compose --profile tunnel up -d

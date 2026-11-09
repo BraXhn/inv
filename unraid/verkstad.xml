@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>verkstad</Name>
+  <Repository>ghcr.io/braxhn/inv:latest</Repository>
+  <Registry>https://github.com/BraXhn/inv/pkgs/container/inv</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Overview>Arbetsordrar, bokningar, kunder och lager med NFC/QR för en cykel- och elektronikverkstad. Publik bokning och statussida för kunder, admin bakom inloggning.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/admin</WebUI>
+  <Icon>https://raw.githubusercontent.com/BraXhn/inv/main/app/static/icon.svg</Icon>
+  <Config Name="Web-port" Target="8080" Default="8080" Mode="tcp" Description="Port för webbgränssnittet" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/verkstad" Mode="rw" Description="Databas, backuper och nycklar" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/verkstad</Config>
+  <Config Name="Admin-användare" Target="ADMIN_USER" Default="admin" Mode="" Description="Användarnamn för admin" Type="Variable" Display="always" Required="true" Mask="false">admin</Config>
+  <Config Name="Admin-lösenord" Target="ADMIN_PASSWORD" Default="" Mode="" Description="Långt unikt lösenord (minst 16 tecken)" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Publik adress" Target="PUBLIC_URL" Default="https://verkstad.dindoman.se" Mode="" Description="Adressen via Cloudflare Tunnel. Används i NFC-taggar, QR och e-post." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Tidszon" Target="TZ" Default="Europe/Stockholm" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Stockholm</Config>
+  <Config Name="SMTP-server" Target="SMTP_HOST" Default="" Mode="" Description="Valfritt. T.ex. smtp.gmail.com" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="SMTP-port" Target="SMTP_PORT" Default="587" Mode="" Description="587 (STARTTLS) eller 465 (SSL)" Type="Variable" Display="advanced" Required="false" Mask="false">587</Config>
+  <Config Name="SMTP-användare" Target="SMTP_USER" Default="" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="SMTP-lösenord" Target="SMTP_PASSWORD" Default="" Mode="" Description="App-lösenord" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Avsändare" Target="SMTP_FROM" Default="" Mode="" Description="T.ex. Garageverkstaden &lt;du@gmail.com&gt;" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Notiser till" Target="NOTIFY_EMAIL" Default="" Mode="" Description="Din e-post för nya bokningar och godkända offerter" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Antal backuper" Target="BACKUP_KEEP" Default="14" Mode="" Description="Dagliga backuper som sparas" Type="Variable" Display="advanced" Required="false" Mask="false">14</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>

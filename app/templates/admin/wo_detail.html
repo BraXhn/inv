@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf, tagbox %}
+{% block title %}{{ wo.number }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div>
+    <h1>{{ wo.number }} · {{ wo.item }}</h1>
+    <span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>
+    <span class="small muted">Skapad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · ligger på <b>{{ wo.loc }}</b>{% endif %}</span>
+  </div>
+  <div class="row">
+    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id) }}">Inlämningskvitto</a>
+    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id, typ='faktura') }}">Specifikation</a>
+  </div>
+</div>
+
+<div class="grid-2">
+<div>
+  <div class="card">
+    <h2>Ändra status</h2>
+    <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}">
+      {{ csrf() }}
+      <div class="fields">
+        <div><label for="status">Ny status</label>
+          <select id="status" name="status">{% for k, l in WO_STATUSES %}<option value="{{ k }}" {{ 'selected' if wo.status == k }}>{{ l }}</option>{% endfor %}</select></div>
+        <div><label for="message">Meddelande till kunden (valfritt)</label><input id="message" type="text" name="message" maxlength="2000"></div>
+      </div>
+      {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="notify" value="1" checked> <span>Skicka e-post till {{ wo.customer_email }}</span></label>{% endif %}
+      <p class="small muted">Offert kräver att offertbelopp är sparat. Kunden godkänner med ett klick på statussidan.</p>
+      <button>Uppdatera status</button>
+    </form>
+  </div>
+
+  <form method="post" class="card">
+    {{ csrf() }}
+    <h2>Uppgifter</h2>
+    <div class="fields">
+      <div><label>Typ</label><select name="category">{% for c in categories %}<option {{ 'selected' if wo.category == c }}>{{ c }}</option>{% endfor %}</select></div>
+      <div><label>Märke och modell</label><input type="text" name="item" value="{{ wo.item or '' }}" maxlength="200"></div>
+      <div><label>Ram-/serienummer</label><input type="text" name="serial" value="{{ wo.serial or '' }}" maxlength="100"></div>
+      <div><label>Utlovat klart</label><input type="date" name="due_date" value="{{ wo.due_date or '' }}"></div>
+      <div><label>Förvaringsplats</label><select name="location_id"><option value="">–</option>{% for l in locations %}<option value="{{ l.id }}" {{ 'selected' if wo.location_id == l.id }}>{{ l.name }}</option>{% endfor %}</select></div>
+      <div><label>Medlämnat</label><input type="text" name="accessories" value="{{ wo.accessories or '' }}" maxlength="500"></div>
+    </div>
+    <label>Felbeskrivning</label><textarea name="problem" maxlength="5000">{{ wo.problem or '' }}</textarea>
+    <label>Diagnos / åtgärd <span class="muted">(syns för kunden vid offert)</span></label><textarea name="diagnosis" maxlength="5000">{{ wo.diagnosis or '' }}</textarea>
+    <label>Interna anteckningar <span class="muted">(syns aldrig för kunden)</span></label><textarea name="internal_notes" maxlength="5000">{{ wo.internal_notes or '' }}</textarea>
+
+    {% if checklist %}
+    <h3>Inlämningskontroll</h3>
+    {% for item in checklist %}<label class="check"><input type="checkbox" name="checklist" value="{{ item }}" {{ 'checked' if item in checked }}> <span>{{ item }}</span></label>{% endfor %}
+    {% endif %}
+
+    <h3>Arbete och pris</h3>
+    <div class="fields">
+      <div><label>Arbetstid (minuter)</label><input type="number" name="labor_minutes" min="0" step="5" value="{{ wo.labor_minutes }}"></div>
+      <div><label>Timpris</label><input type="number" name="labor_rate" min="0" step="1" value="{{ '%g'|format(wo.labor_rate or 0) }}"></div>
+      <div><label>Offertbelopp</label><input type="number" name="price_quote" min="0" step="1" value="{{ '%g'|format(wo.price_quote) if wo.price_quote is not none else '' }}"></div>
+    </div>
+    {% if wo.quote_approved_at %}<p class="small">Offerten godkändes {{ wo.quote_approved_at|dt }}.</p>{% endif %}
+    <p><button>Spara</button></p>
+  </form>
+
+  <div class="card" id="rader">
+    <h2>Delar och material</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th><th class="right">Summa</th><th></th></tr>
+      {% for l in lines %}
+      <tr>
+        <td>{% if l.part_id %}<a href="{{ url_for('part_detail', pid=l.part_id) }}">{{ l.description }}</a>{% else %}{{ l.description }}{% endif %}{% if l.sku %} <span class="small muted">{{ l.sku }}</span>{% endif %}</td>
+        <td class="right">{{ l.qty|qty }}</td><td class="right nowrap">{{ l.unit_price|money }}</td><td class="right nowrap">{{ (l.qty * l.unit_price)|money }}</td>
+        <td class="right"><form method="post" action="{{ url_for('wo_remove_line', wid=wo.id, lid=l.id) }}">{{ csrf() }}<button class="link small" data-confirm="Ta bort raden{{ ' och återföra delen till lagret' if l.part_id }}?">Ta bort</button></form></td>
+      </tr>
+      {% endfor %}
+      <tr><td colspan="3">Arbete {{ '%.2f'|format(totals.hours)|replace('.', ',') }} h</td><td class="right nowrap">{{ totals.labor|money }}</td><td></td></tr>
+      <tr class="sum"><th colspan="3">Totalt</th><th class="right nowrap">{{ totals.total|money }}</th><th></th></tr>
+    </table></div>
+
+    <h3>Lägg till från lager</h3>
+    <form method="post" action="{{ url_for('wo_add_line', wid=wo.id) }}" class="fields">
+      {{ csrf() }}
+      <div><label>Del</label><select name="part_id" data-price-target="lp" required>
+        <option value="">Välj…</option>
+        {% for p in parts %}<option value="{{ p.id }}" data-price="{{ '%g'|format(p.unit_price) }}">{{ p.name }}{% if p.sku %} [{{ p.sku }}]{% endif %} – {{ p.qty|qty }} {{ p.unit }}{% if p.loc %} @ {{ p.loc }}{% endif %}</option>{% endfor %}
+      </select></div>
+      <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
+      <div><label>À-pris (tomt = listpris)</label><input id="lp" type="number" name="unit_price" min="0" step="any"></div>
+      <div><label>&nbsp;</label><button>Lägg till och dra från lager</button></div>
+    </form>
+
+    <h3>Fri rad (köpt för ärendet, ej lagerförd)</h3>
+    <form method="post" action="{{ url_for('wo_add_line', wid=wo.id) }}" class="fields">
+      {{ csrf() }}
+      <div><label>Beskrivning</label><input type="text" name="description" maxlength="300" required></div>
+      <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
+      <div><label>À-pris</label><input type="number" name="unit_price" min="0" step="any" required></div>
+      <div><label>&nbsp;</label><button class="ghost">Lägg till</button></div>
+    </form>
+  </div>
+
+  <div class="card" id="logg">
+    <h2>Logg</h2>
+    <form method="post" action="{{ url_for('wo_add_event', wid=wo.id) }}">
+      {{ csrf() }}
+      <textarea name="text" maxlength="3000" placeholder="Anteckning, mätvärde, vad som gjorts…" required></textarea>
+      <label class="check"><input type="checkbox" name="public" value="1"> <span>Synlig för kunden</span></label>
+      <button class="small">Lägg till</button>
+    </form>
+    <ul class="timeline mt">
+      {% for e in events %}<li class="{{ '' if e.public else 'private' }}"><span class="small muted">{{ e.created_at|dt }}{% if not e.public %} · intern{% endif %}</span><br>{{ e.text }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div>
+  <div class="card">
+    <h2>Kund</h2>
+    <p><a href="{{ url_for('customer_detail', cid=wo.customer_id) }}">{{ wo.customer_name }}</a><br>
+    {% if wo.customer_email %}<a href="mailto:{{ wo.customer_email }}">{{ wo.customer_email }}</a><br>{% endif %}
+    {% if wo.customer_phone %}<a href="tel:{{ wo.customer_phone }}">{{ wo.customer_phone }}</a>{% endif %}</p>
+    <h3>Kundens statuslänk</h3>
+    <p class="taglink mono">{{ status_url }}</p>
+    <button class="ghost small" data-copy="{{ status_url }}">Kopiera</button>
+  </div>
+  {{ tagbox(wo.tag_code, 'Tagg för objektet') }}
+</div>
+</div>
+{% endblock %}

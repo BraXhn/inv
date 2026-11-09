@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block footer %}
+<footer class="footer">
+  {{ S.business_name }}{% if S.address %} · {{ S.address }}{% endif %}
+  {% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}
+  {% if S.contact_email %} · <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}
+  <br><a href="{{ url_for('book') }}">Boka tid</a> · <a href="{{ url_for('privacy') }}">Integritet</a>
+</footer>
+{% endblock %}

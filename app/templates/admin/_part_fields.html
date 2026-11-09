@@ -1,0 +1,15 @@
+<div class="fields">
+  <div><label>Namn</label><input type="text" name="name" value="{{ p.name if p else '' }}" maxlength="200" required></div>
+  <div><label>Artikelnummer</label><input type="text" name="sku" value="{{ (p.sku or '') if p else '' }}" maxlength="60"></div>
+  <div><label>Kategori</label><input type="text" name="category" list="cats" value="{{ (p.category or '') if p else pre_cat }}" maxlength="60" placeholder="Bromsar, Drivlina, Kondensatorer…">
+    <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist></div>
+  <div><label>Plats</label><select name="location_id"><option value="">–</option>{% for l in locations %}<option value="{{ l.id }}" {{ 'selected' if (p and p.location_id == l.id) or (not p and pre_loc == l.id) }}>{{ l.name }}</option>{% endfor %}</select></div>
+  {% if not p %}<div><label>Startsaldo</label><input type="number" name="qty" value="0" step="any"></div>{% endif %}
+  <div><label>Enhet</label><input type="text" name="unit" value="{{ p.unit if p else 'st' }}" maxlength="10"></div>
+  <div><label>Beställningspunkt</label><input type="number" name="min_qty" value="{{ '%g'|format(p.min_qty) if p else 0 }}" step="any" min="0"></div>
+  <div><label>Inköpspris</label><input type="number" name="unit_cost" value="{{ '%g'|format(p.unit_cost or 0) if p else '' }}" step="any" min="0"></div>
+  <div><label>Pris till kund</label><input type="number" name="unit_price" value="{{ '%g'|format(p.unit_price or 0) if p else '' }}" step="any" min="0"></div>
+  <div><label>Leverantör</label><input type="text" name="supplier" value="{{ (p.supplier or '') if p else '' }}" maxlength="120"></div>
+  <div><label>Produktlänk</label><input type="url" name="supplier_url" value="{{ (p.supplier_url or '') if p else '' }}" maxlength="500"></div>
+</div>
+<label>Anteckningar (mått, kompatibilitet, specifikation)</label><textarea name="notes" maxlength="2000">{{ (p.notes or '') if p else '' }}</textarea>

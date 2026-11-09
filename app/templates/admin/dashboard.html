@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import wo_table %}
+{% block title %}Översikt{% endblock %}
+{% block content %}
+<div class="spread">
+  <h1>Översikt</h1>
+  <div class="row"><a class="btn" href="{{ url_for('wo_new') }}">+ Ny arbetsorder</a><a class="btn ghost" href="{{ url_for('part_new') }}">+ Ny del</a></div>
+</div>
+
+<div class="stats">
+  {% for key, label in WO_STATUSES if key not in ('utlamnad', 'avbruten') %}
+  <a class="stat" href="{{ url_for('wo_list', status=key) }}"><b>{{ counts.get(key, 0) }}</b><span>{{ label }}</span></a>
+  {% endfor %}
+  <div class="stat"><b>{{ revenue|money }}</b><span>Utlämnat denna månad ({{ closed_count }} st)</span></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="spread"><h2>Kommande bokningar</h2><a class="small" href="{{ url_for('bookings_list') }}">Alla</a></div>
+    {% for b in upcoming %}
+      <p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> <b>{{ b.slot_start|dt }}</b><br>
+      <span class="small">{{ b.name }} – {{ b.category }}: {{ b.item }}</span></p>
+    {% else %}<p class="muted">Inga kommande bokningar.</p>{% endfor %}
+  </div>
+
+  <div class="card">
+    <div class="spread"><h2>Att beställa</h2><a class="small" href="{{ url_for('shopping_list') }}">Inköpslista</a></div>
+    {% for p in low %}
+      <p><a href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a> <span class="small muted">{{ p.qty|qty }} {{ p.unit }} kvar (min {{ p.min_qty|qty }})</span></p>
+    {% else %}<p class="muted">Allt i lager över beställningspunkten.</p>{% endfor %}
+  </div>
+</div>
+
+{% if overdue %}
+<div class="card"><h2>Försenade (passerat klart-datum)</h2>{{ wo_table(overdue) }}</div>
+{% endif %}
+{% if stale %}
+<div class="card"><h2>Inte rörda på 7 dagar</h2>{{ wo_table(stale) }}</div>
+{% endif %}
+{% endblock %}

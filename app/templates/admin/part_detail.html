@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf, tagbox %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<div class="spread">
+  <div><h1>{{ p.name }}</h1><span class="small muted">{{ p.category or '' }}{% if p.loc %} · {{ p.loc }}{% endif %}</span></div>
+  <div class="stat"><b>{{ p.qty|qty }} {{ p.unit }}</b><span>{% if p.min_qty and p.qty <= p.min_qty %}Under beställningspunkt ({{ p.min_qty|qty }}){% else %}i lager{% endif %}</span></div>
+</div>
+<div class="grid-2">
+  <div>
+    <div class="card">
+      <h2>Justera saldo</h2>
+      <form method="post" action="{{ url_for('part_adjust', pid=p.id) }}" class="fields">
+        {{ csrf() }}
+        <div><label>Typ</label><select name="mode"><option value="delta">Lägg till / dra av (+/-)</option><option value="set">Inventera (sätt exakt saldo)</option></select></div>
+        <div><label>Antal</label><input type="number" name="amount" step="any" required></div>
+        <div><label>Orsak</label><input type="text" name="reason" maxlength="200" placeholder="Inleverans, svinn…"></div>
+        <div><label>&nbsp;</label><button>Uppdatera</button></div>
+      </form>
+    </div>
+    <form method="post" class="card">
+      {{ csrf() }}
+      <h2>Uppgifter</h2>
+      {% include "admin/_part_fields.html" %}
+      <p class="row"><button>Spara</button>{% if p.supplier_url %}<a class="btn ghost" href="{{ p.supplier_url }}" target="_blank" rel="noopener">Beställ hos leverantör ↗</a>{% endif %}</p>
+    </form>
+    <div class="card">
+      <h2>Historik</h2>
+      <table>
+        {% for m in moves %}<tr><td class="small muted nowrap">{{ m.created_at|dt }}</td><td class="right nowrap">{{ '+' if m.delta > 0 }}{{ m.delta|qty }}</td><td>{{ m.reason }}{% if m.work_order_id %} <a href="{{ url_for('wo_detail', wid=m.work_order_id) }}">{{ m.number }}</a>{% endif %}</td></tr>
+        {% else %}<tr><td class="muted">Ingen historik.</td></tr>{% endfor %}
+      </table>
+    </div>
+    <form method="post" action="{{ url_for('part_archive', pid=p.id) }}">{{ csrf() }}<button class="danger small" data-confirm="Arkivera delen?">Arkivera del</button></form>
+  </div>
+  <div>{{ tagbox(p.tag_code) }}</div>
+</div>
+{% endblock %}

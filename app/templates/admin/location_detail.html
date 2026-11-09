@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "admin/_macros.html" import csrf, tagbox, wo_table %}
+{% block title %}{{ loc.name }}{% endblock %}
+{% block content %}
+<div class="spread"><h1>{{ loc.name }}</h1><a class="btn" href="{{ url_for('part_new', plats=loc.id) }}">+ Lägg del här</a></div>
+<div class="grid-2">
+  <div>
+    <div class="card">
+      <h2>Innehåll</h2>
+      <table>
+        {% for p in parts %}
+        <tr class="{{ 'low' if p.min_qty and p.qty <= p.min_qty }}"><td><a href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a></td><td class="right nowrap">{{ p.qty|qty }} {{ p.unit }}</td>
+          <td class="right"><form method="post" action="{{ url_for('part_adjust', pid=p.id) }}" class="row">{{ csrf() }}<input type="hidden" name="mode" value="delta"><input type="hidden" name="amount" value="-1"><input type="hidden" name="reason" value="Uttag via plats"><button class="small ghost">−1</button></form></td></tr>
+        {% else %}<tr><td class="muted">Tom plats.</td></tr>{% endfor %}
+      </table>
+    </div>
+    {% if wos %}<div class="card"><h2>Inlämnade objekt här</h2>{{ wo_table(wos) }}</div>{% endif %}
+    <form method="post" class="card">
+      {{ csrf() }}
+      <h2>Ändra plats</h2>
+      <label>Namn</label><input type="text" name="name" value="{{ loc.name }}" maxlength="100">
+      <label>Beskrivning</label><input type="text" name="description" value="{{ loc.description or '' }}" maxlength="500">
+      <p class="row"><button>Spara</button><button class="danger" name="action" value="radera" data-confirm="Ta bort platsen? Delarna blir kvar utan plats.">Ta bort</button></p>
+    </form>
+  </div>
+  <div>{{ tagbox(loc.tag_code) }}</div>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "public/_layout.html" %}
+{% block title %}Integritet – {{ S.business_name }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Så hanterar vi dina uppgifter</h1>
+  <p><b>Vilka uppgifter:</b> namn, e-post, telefon (om du anger det), vad du lämnar in och beskrivningen av felet.</p>
+  <p><b>Varför:</b> för att hantera din bokning och reparation och kunna kontakta dig om den. Den rättsliga grunden är att fullgöra avtalet med dig.</p>
+  <p><b>Var:</b> uppgifterna lagras på vår egen server och delas inte med någon annan. E-post skickas via vår e-postleverantör.</p>
+  <p><b>Hur länge:</b> personuppgifterna anonymiseras när du inte haft något ärende hos oss på {{ S.retention_months }} månader.</p>
+  <p><b>Dina rättigheter:</b> du kan när som helst begära ut, rätta eller radera dina uppgifter{% if S.contact_email %} genom att mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
+  <p><b>Cookies:</b> vi använder bara en nödvändig cookie för att formulären ska fungera säkert. Ingen spårning.</p>
+</div>
+{% endblock %}
