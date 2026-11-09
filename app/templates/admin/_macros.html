@@ -1,10 +1,11 @@
-{% macro tagbox(code, title='NFC / QR') %}
+{% macro tagbox(code, title='NFC / QR', kind=None, oid=None) %}
 {% set url = tag_url(code) %}
 <div class="card qrbox">
   <h2>{{ title }}</h2>
   {{ qr_svg(url) }}
   <p class="taglink mono">{{ url }}</p>
   <p class="row center"><button type="button" class="ghost small" data-copy="{{ url }}">Kopiera länk</button></p>
+  {% if label_printer and kind %}<form method="post" action="{{ url_for('label_print', kind=kind, oid=oid) }}" class="row center">{{ csrf() }}<input type="number" name="copies" value="1" min="1" max="10" class="copies" aria-label="Antal"><button class="small">Skriv ut etikett</button></form>{% endif %}
   <p class="small muted">Skriv länken till en NFC-tagg med appen NFC Tools (”Lägg till post → URL”), eller skriv ut QR-koden. Taggen öppnar den här sidan efter inloggning.</p>
 </div>
 {% endmacro %}

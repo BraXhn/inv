@@ -23,7 +23,12 @@ from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-VERSION = "2.1.0"
+try:  # etiketter kräver Pillow (finns i Docker-imagen)
+    import labels as labelkit
+except ImportError:  # pragma: no cover
+    labelkit = None
+
+VERSION = "2.2.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -102,6 +107,11 @@ DEFAULT_SETTINGS = {
     "response_promise": "Vi bekräftar din tid inom ett dygn.",
     "tagline": "Cykelservice och elektronikreparationer",
     "print_on_intake": "1",
+    "label_printer_url": "",
+    "label_printer_token": "",
+    "label_size": "62",
+    "label_on_intake": "1",
+    "label_customer_on_intake": "0",
     "intake_terms": "Objektet förvaras på kundens risk utöver normal aktsamhet. Vi kontaktar dig med offert innan arbete utöver avtalat uppdrag utförs. Ej hämtade objekt förvaras i 3 månader efter att de meddelats klara.",
     "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
     "reminder_enabled": "1",
@@ -743,6 +753,7 @@ def inject_globals():
     ctx = {"S": settings(), "is_admin": bool(session.get("admin"))}
     if session.get("admin"):
         ctx["nav_new_bookings"] = q("SELECT COUNT(*) c FROM bookings WHERE status='ny'", one=True)["c"]
+        ctx["label_printer"] = label_printer_ready()
         ctx["nav_timers"] = q("SELECT COUNT(*) c FROM work_orders WHERE timer_started_at IS NOT NULL", one=True)["c"]
     return ctx
 
@@ -1645,7 +1656,15 @@ def after_intake(wid):
                                ("Inlämnad", fmt_dt(wo["created_at"])), ("Medlämnat", wo["accessories"] or "–")],
                       button=("Följ ärendet", f"{base_url()}{url_for('status', token=wo['token'])}"),
                       note=s.get("intake_terms", ""))
-    if settings().get("print_on_intake") == "1":
+    s = settings()
+    if label_printer_ready() and s.get("label_on_intake") == "1":
+        ok, msg = print_label("ao", wid)
+        if ok and s.get("label_customer_on_intake") == "1" and s.get("label_size", "62") == "62":
+            ok, msg = print_label("kund", wid)
+        flash(f"{wo['number']}: etikett utskriven." if ok else f"Etikettskrivaren: {msg}", "message" if ok else "error")
+        if s.get("print_on_intake") != "1":
+            return redirect(url_for("wo_detail", wid=wid))
+    if s.get("print_on_intake") == "1":
         return redirect(url_for("wo_intake_print", wid=wid, auto=1))
     flash(f"{wo['number']} är mottagen.")
     return redirect(url_for("wo_detail", wid=wid))
@@ -1660,6 +1679,88 @@ def wo_intake_print(wid):
                            auto=request.args.get("auto") == "1",
                            status_url=f"{base_url()}{url_for('status', token=wo['token'])}",
                            obj_url=tag_url(wo["tag_code"]))
+
+
+# ---------------------------------------------------------------------------
+# Etikettskrivare (Brother QL via printservern på Raspberry Pi)
+# ---------------------------------------------------------------------------
+def label_printer_ready():
+    return bool(labelkit and settings().get("label_printer_url"))
+
+
+def render_label(kind, oid):
+    """Returnerar PNG för en etikett. kind: ao (objektlapp), kund (mottagningssedel), plats, del."""
+    if not labelkit:
+        abort(503)
+    size = settings().get("label_size", "62")
+    if kind in ("ao", "kund"):
+        wo = _load_wo(oid)
+        if kind == "ao":
+            return labelkit.object_label(wo, tag_url(wo["tag_code"]), size)
+        return labelkit.customer_ticket(wo, f"{base_url()}{url_for('status', token=wo['token'])}", settings())
+    if kind == "plats":
+        loc = q("SELECT * FROM locations WHERE id=?", (oid,), one=True) or abort(404)
+        return labelkit.tag_label(loc["name"], loc["description"], loc["tag_code"], tag_url(loc["tag_code"]), size)
+    if kind == "del":
+        p = q("SELECT p.*, l.name loc FROM parts p LEFT JOIN locations l ON l.id=p.location_id WHERE p.id=?",
+              (oid,), one=True) or abort(404)
+        sub = ", ".join(v for v in (p["sku"], p["loc"]) if v)
+        return labelkit.tag_label(p["name"], sub, p["tag_code"], tag_url(p["tag_code"]), size)
+    abort(404)
+
+
+def print_label(kind, oid, copies=1):
+    s = settings()
+    png = render_label(kind, oid)
+    label = "62" if kind == "kund" else s.get("label_size", "62")
+    return labelkit.send(s.get("label_printer_url"), s.get("label_printer_token"), png, label, copies)
+
+
+@app.route("/admin/etikett/<kind>/<int:oid>.png")
+@login_required
+def label_preview(kind, oid):
+    return Response(render_label(kind, oid), mimetype="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.route("/admin/etikett/<kind>/<int:oid>", methods=["POST"])
+@login_required
+def label_print(kind, oid):
+    if not label_printer_ready():
+        flash("Ställ in etikettskrivaren under Inställningar först.", "error")
+    else:
+        copies = max(1, min(10, to_int(request.form.get("copies"), 1)))
+        ok, msg = print_label(kind, oid, copies)
+        flash("Etiketten är utskriven." if ok else f"Etikettskrivaren: {msg}", "message" if ok else "error")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/admin/etikett/platser", methods=["POST"])
+@login_required
+def label_print_all_locations():
+    if not label_printer_ready():
+        flash("Ställ in etikettskrivaren under Inställningar först.", "error")
+        return redirect(url_for("locations_list"))
+    done, err = 0, ""
+    for loc in q("SELECT id FROM locations ORDER BY name"):
+        ok, msg = print_label("plats", loc["id"])
+        if not ok:
+            err = msg
+            break
+        done += 1
+    flash(f"{done} etiketter utskrivna." + (f" Stoppade: {err}" if err else ""), "error" if err else "message")
+    return redirect(url_for("locations_list"))
+
+
+@app.route("/admin/etikett/test", methods=["POST"])
+@login_required
+def label_test():
+    s = settings()
+    if not label_printer_ready():
+        flash("Fyll i printserverns adress först.", "error")
+    else:
+        ok, msg = labelkit.test(s["label_printer_url"], s.get("label_printer_token"))
+        flash(msg if ok else f"Etikettskrivaren: {msg}", "message" if ok else "error")
+    return redirect(url_for("settings_page") + "#etikett")
 
 
 @app.route("/admin/ao/<int:wid>/kvitto")
@@ -1980,7 +2081,7 @@ def settings_page():
                     val = ",".join(d for d in request.form.getlist(k) if d.isdigit())
                 elif k not in request.form:
                     continue
-                elif k == "smtp_password" and not request.form.get(k):
+                elif k in ("smtp_password", "label_printer_token") and not request.form.get(k):
                     continue  # tomt fält = behåll sparat lösenord
                 else:
                     val = clean(request.form.get(k), 3000)
@@ -1997,8 +2098,9 @@ def settings_page():
         return redirect(url_for("settings_page") + (f"#{section}" if section else ""))
     backups = sorted(os.listdir(BACKUP_DIR), reverse=True)[:10] if os.path.isdir(BACKUP_DIR) else []
     env_mail = [k for k in MAIL_KEYS if os.environ.get(k.upper())]
+    printer = labelkit.health(settings().get("label_printer_url")) if labelkit else None
     return render_template("admin/settings.html", mail=mail_enabled(), backups=backups,
-                           days=list(enumerate(SV_DAYS, start=1)), env_mail=env_mail,
+                           days=list(enumerate(SV_DAYS, start=1)), env_mail=env_mail, printer=printer,
                            api_base=f"{base_url()}/api/v1",
                            cal_url=f"{base_url()}/kalender/{settings()['calendar_token']}.ics")
 
@@ -2011,8 +2113,10 @@ SETTINGS_SECTIONS = {
                 "min_notice_hours", "blocked_dates"],
     "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
     "api": ["api_cors_origin"],
+    "etikett": ["label_printer_url", "label_printer_token", "label_size", "label_on_intake", "label_customer_on_intake"],
 }
-CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake"}
+CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake", "label_on_intake",
+                     "label_customer_on_intake"}
 
 
 @app.route("/admin/epost/test", methods=["POST"])

@@ -1,5 +1,5 @@
 {% extends "admin/_shell.html" %}
-{% from "admin/_macros.html" import csrf, tagbox %}
+{% from "admin/_macros.html" import csrf, tagbox with context %}
 {% block title %}{{ wo.number }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -9,7 +9,8 @@
     <div class="sub">{{ wo.customer_name }} · inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
   </div>
   <div class="actions">
-    <a class="btn ghost small" href="{{ url_for('wo_intake_print', wid=wo.id) }}">{{ icon('printer') }} Mottagningssedel & lapp</a>
+    {% if label_printer %}<form method="post" action="{{ url_for('label_print', kind='ao', oid=wo.id) }}" class="inline">{{ csrf() }}<button class="ghost small">{{ icon('tag') }} Objektlapp</button></form>{% endif %}
+    <a class="btn ghost small" href="{{ url_for('wo_intake_print', wid=wo.id) }}">{{ icon('printer') }} Mottagningssedel</a>
     <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id, typ='faktura') }}">{{ icon('list') }} Specifikation</a>
   </div>
 </div>

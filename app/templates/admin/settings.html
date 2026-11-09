@@ -92,6 +92,25 @@
     <p class="mt mb0"><button class="small">Spara</button></p>
   </form>
 
+  <form method="post" class="card" id="etikett">
+    {{ csrf() }}<input type="hidden" name="section" value="etikett">
+    <div class="spread"><h2 class="mb0">Etikettskrivare</h2>
+      {% if printer %}<span class="pill {{ 'skickat' if printer.ok and printer.printer_connected else 'fel' }}">{% if printer.ok and printer.printer_connected %}Ansluten{% elif printer.ok %}Skrivaren hittas inte{% else %}Når inte Pi:n{% endif %}</span>{% endif %}</div>
+    <p class="help">Brother QL via printservern på en Raspberry Pi. Installera med kommandot i README och klistra in adressen och nyckeln som skriptet visar.</p>
+    {% if printer and printer.ok %}<p class="help">{{ printer.model }}, rulle {{ printer.label }} mm, {{ printer.printed }} utskrivna sedan start.{% if printer.last_error %} Senaste fel: {{ printer.last_error }}{% endif %}</p>{% elif printer %}<p class="help">{{ printer.error }}</p>{% endif %}
+    <label>Printserverns adress</label><input type="url" name="label_printer_url" value="{{ S.label_printer_url }}" placeholder="http://192.168.1.60:8631">
+    <label>Nyckel</label><input type="password" name="label_printer_token" placeholder="{{ 'Sparad – lämna tomt för att behålla' if S.label_printer_token else 'PRINT_TOKEN från Pi:n' }}" autocomplete="new-password">
+    <label>Etikett i skrivaren</label>
+    <select name="label_size">
+      <option value="62" {{ 'selected' if S.label_size == '62' }}>62 mm löpande (rekommenderas)</option>
+      <option value="62x29" {{ 'selected' if S.label_size == '62x29' }}>62 × 29 mm stansade</option>
+    </select>
+    <label class="check mt"><input type="checkbox" name="label_on_intake" value="1" {{ 'checked' if S.label_on_intake == '1' }}> <span>Skriv ut objektlapp när ett ärende tas emot</span></label>
+    <label class="check"><input type="checkbox" name="label_customer_on_intake" value="1" {{ 'checked' if S.label_customer_on_intake == '1' }}> <span>Skriv även ut kundens mottagningssedel på etikettskrivaren (bara 62 mm löpande)</span></label>
+    <div class="actions mt"><button class="small">Spara</button></div>
+  </form>
+  <form method="post" action="{{ url_for('label_test') }}" class="card row">{{ csrf() }}<button class="ghost small">Skriv ut testetikett</button><span class="help">Kontrollerar anslutning, nyckel och rulle.</span></form>
+
   <div class="card">
     <h2>Kalender</h2>
     <p class="help">Prenumerera i telefonen så syns bokningarna i din vanliga kalender.</p>

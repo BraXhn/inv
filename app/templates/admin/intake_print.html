@@ -15,7 +15,20 @@
   <a class="btn small {{ '' if fmt == 'kund' else 'ghost' }}" href="{{ url_for('wo_intake_print', wid=wo.id, format='kund') }}">Bara kundens sedel</a>
   <a class="btn small {{ '' if fmt == 'etikett' else 'ghost' }}" href="{{ url_for('wo_intake_print', wid=wo.id, format='etikett') }}">Bara objektlapp (etikett 62 mm)</a>
 </div>
-{% if auto %}<div data-autoprint hidden></div>{% endif %}
+{% if label_printer %}
+<div class="card no-print">
+  <div class="spread"><h2 class="mb0">Etikettskrivaren</h2>
+    <div class="actions">
+      <form method="post" action="{{ url_for('label_print', kind='ao', oid=wo.id) }}">{{ csrf() }}<button class="small">Skriv ut objektlapp</button></form>
+      {% if S.label_size == '62' %}<form method="post" action="{{ url_for('label_print', kind='kund', oid=wo.id) }}">{{ csrf() }}<button class="small ghost">Skriv ut kundsedel</button></form>{% endif %}
+    </div></div>
+  <div class="label-previews">
+    <img src="{{ url_for('label_preview', kind='ao', oid=wo.id) }}" alt="Objektlapp" loading="lazy">
+    {% if S.label_size == '62' %}<img src="{{ url_for('label_preview', kind='kund', oid=wo.id) }}" alt="Kundsedel" loading="lazy">{% endif %}
+  </div>
+</div>
+{% endif %}
+{% if auto and not label_printer %}<div data-autoprint hidden></div>{% endif %}
 
 <div class="sheet sheet-{{ fmt }}">
   {% if fmt in ('a4', 'kund') %}

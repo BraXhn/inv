@@ -11,6 +11,7 @@ Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad.
 - **Tjänster och priser** som visas på bokningssidan. Tjänster med fast pris läggs automatiskt på ärendet.
 - **E-post med egen layout** i HTML och text. Bekräftelsen har en kalenderfil bifogad, kunden får påminnelse dagen före, och det finns offert- och klartmejl, notiser till dig, en knapp för testmejl och en logg över alla utskick.
 - **Mottagningssedel och objektlapp** skrivs ut direkt när ett ärende tas emot: sedeln får kunden med ärendenummer, hämtkod och QR-kod till sin statussida, och lappen fästs på objektet med QR/NFC för spårbarhet. Lappen går också att skriva ut på en etikettskrivare med 62 mm rulle. Kunden får dessutom sedeln som mejl.
+- **Etikettskrivare (Brother QL)** via en Raspberry Pi som printserver. Objektlappen, och om du vill även kundens sedel, skrivs ut automatiskt vid mottagning. Det finns också etiketter för lagerplatser och delar, en åt gången eller alla platser på en gång. Se [printserver/README.md](printserver/README.md).
 - **Läs-API** för hemskärmar, till exempel Rasp-hemma-hub.
 - **Ny design** med sidomeny på datorn, bottenmeny i mobilen, mörkt läge och valfri accentfärg. Admin kan installeras som app på hemskärmen.
 

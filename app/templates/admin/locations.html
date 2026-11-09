@@ -5,6 +5,7 @@
 <div class="spread">
   <h1>Platser</h1>
   <div class="row">
+    {% if label_printer %}<form method="post" action="{{ url_for('label_print_all_locations') }}" class="inline">{{ csrf() }}<button class="small" data-confirm="Skriva ut en etikett per plats på etikettskrivaren?">Skriv ut alla platser</button></form>{% endif %}
     <a class="btn ghost small" href="{{ url_for('labels', typ='platser') }}">Etiketter: platser</a>
     <a class="btn ghost small" href="{{ url_for('labels', typ='delar') }}">Etiketter: delar</a>
     <a class="btn ghost small" href="{{ url_for('labels', typ='ao') }}">Etiketter: arbetsordrar</a>

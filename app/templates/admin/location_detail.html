@@ -1,5 +1,5 @@
 {% extends "admin/_shell.html" %}
-{% from "admin/_macros.html" import csrf, tagbox, wo_table %}
+{% from "admin/_macros.html" import csrf, tagbox, wo_table with context %}
 {% block title %}{{ loc.name }}{% endblock %}
 {% block content %}
 <div class="spread"><h1>{{ loc.name }}</h1><a class="btn" href="{{ url_for('part_new', plats=loc.id) }}">+ Lägg del här</a></div>
@@ -23,6 +23,6 @@
       <p class="row"><button>Spara</button><button class="danger" name="action" value="radera" data-confirm="Ta bort platsen? Delarna blir kvar utan plats.">Ta bort</button></p>
     </form>
   </div>
-  <div>{{ tagbox(loc.tag_code) }}</div>
+  <div>{{ tagbox(loc.tag_code, kind='plats', oid=loc.id) }}</div>
 </div>
 {% endblock %}

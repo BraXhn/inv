@@ -1,5 +1,5 @@
 {% extends "admin/_shell.html" %}
-{% from "admin/_macros.html" import csrf, tagbox %}
+{% from "admin/_macros.html" import csrf, tagbox with context %}
 {% block title %}{{ p.name }}{% endblock %}
 {% block content %}
 <div class="spread">
@@ -33,6 +33,6 @@
     </div>
     <form method="post" action="{{ url_for('part_archive', pid=p.id) }}">{{ csrf() }}<button class="danger small" data-confirm="Arkivera delen?">Arkivera del</button></form>
   </div>
-  <div>{{ tagbox(p.tag_code) }}</div>
+  <div>{{ tagbox(p.tag_code, kind='del', oid=p.id) }}</div>
 </div>
 {% endblock %}

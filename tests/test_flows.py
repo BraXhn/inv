@@ -380,7 +380,69 @@ def test_v2():
     print("V2-TESTER OK")
 
 
+def test_labels():
+    """Etikettskrivare: förhandsvisning, utskrift vid mottagning, platser/delar, test, fel från printservern."""
+    verkstad._rl_hits.clear()
+    jobs = []
+    kit = verkstad.labelkit
+    kit.send = lambda url, token, png, label="62", copies=1: (jobs.append((url, token, png[:4], label, copies)) or (True, "Utskriven"))
+    kit.test = lambda url, token: (True, "Testetikett utskriven")
+    kit.health = lambda url, timeout=2: {"ok": True, "printer_connected": True, "model": "QL-800", "label": "62", "printed": 3}
+    adm = login(A.test_client())
+    tok = csrf(adm, "/admin/installningar")
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "etikett", "label_printer_url": "http://pi:8631",
+                                           "label_printer_token": "hemlig", "label_size": "62", "label_on_intake": "1",
+                                           "label_customer_on_intake": "1"})
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "verkstad"})  # kryssruta ej ikryssad = av
+    page = adm.get("/admin/installningar").get_data(as_text=True)
+    assert "Ansluten" in page and "QL-800" in page, page[:200]
+    assert 'value="hemlig"' not in page
+    # Tomt nyckelfält behåller nyckeln
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "etikett", "label_printer_url": "http://pi:8631",
+                                           "label_printer_token": "", "label_size": "62", "label_on_intake": "1",
+                                           "label_customer_on_intake": "1"})
+    assert verkstad.connect().execute("SELECT value FROM settings WHERE key='label_printer_token'").fetchone()[0] == "hemlig"
+
+    tok = csrf(adm, "/admin/ao/ny")
+    r = adm.post("/admin/ao/ny", data={"_csrf": tok, "new_name": "Dora Dahl", "new_phone": "0731112233",
+                                       "category": "Cykel", "item": "Bianchi Sprint", "problem": "Service"})
+    assert re.search(r"/admin/ao/\d+$", r.headers["Location"]), r.headers["Location"]  # A4 av -> direkt till ärendet
+    wid = int(r.headers["Location"].rsplit("/", 1)[1])
+    assert [j[3] for j in jobs] == ["62", "62"] and all(j[2] == b"\x89PNG" and j[1] == "hemlig" for j in jobs)
+    for kind, oid in (("ao", wid), ("kund", wid)):
+        r = adm.get(f"/admin/etikett/{kind}/{oid}.png")
+        assert r.status_code == 200 and r.mimetype == "image/png" and r.data[:4] == b"\x89PNG"
+    c = verkstad.connect()
+    lid = c.execute("SELECT id FROM locations LIMIT 1").fetchone()[0]
+    pid = c.execute("SELECT id FROM parts LIMIT 1").fetchone()[0]
+    jobs.clear()
+    adm.post(f"/admin/etikett/plats/{lid}", data={"_csrf": tok, "copies": "3"}, headers={"Referer": "/admin/platser"})
+    adm.post(f"/admin/etikett/del/{pid}", data={"_csrf": tok})
+    assert [j[4] for j in jobs] == [3, 1]
+    assert "Skriv ut etikett" in adm.get(f"/admin/lager/{pid}").get_data(as_text=True)
+    assert "Objektlapp" in adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    jobs.clear()
+    adm.post("/admin/etikett/platser", data={"_csrf": tok})
+    assert len(jobs) == c.execute("SELECT COUNT(*) FROM locations").fetchone()[0]
+    r = adm.post("/admin/etikett/test", data={"_csrf": tok}, follow_redirects=True)
+    assert "Testetikett utskriven" in r.get_data(as_text=True)
+    # Fel från printservern visas för användaren
+    kit.send = lambda *a, **k: (False, "Skrivaren hittas inte (/dev/usb/lp0).")
+    r = adm.post(f"/admin/etikett/ao/{wid}", data={"_csrf": tok}, headers={"Referer": f"/admin/ao/{wid}"}, follow_redirects=True)
+    assert "Skrivaren hittas inte" in r.get_data(as_text=True)
+    # 62x29: kundsedel skrivs inte ut automatiskt
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "etikett", "label_printer_url": "http://pi:8631",
+                                           "label_size": "62x29", "label_on_intake": "1", "label_customer_on_intake": "1"})
+    jobs.clear()
+    kit.send = lambda url, token, png, label="62", copies=1: (jobs.append(label) or (True, "ok"))
+    tok = csrf(adm, "/admin/ao/ny")
+    adm.post("/admin/ao/ny", data={"_csrf": tok, "customer_id": "1", "category": "Cykel", "item": "Liten etikett"})
+    assert jobs == ["62x29"]
+    print("ETIKETT-TESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
+    test_labels()
     print("ALLA TESTER OK")
