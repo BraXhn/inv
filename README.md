@@ -27,9 +27,9 @@ Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad.
 ## Installation på Unraid
 
 ### Alternativ A: GitHub + Unraid-mall (rekommenderas, ger enkla uppdateringar)
-1. Koden ligger i `BraXhn/inv` (privat).
+1. Koden ligger i `BraXhn/inv`.
 2. GitHub Actions kör testerna och publicerar en image till `ghcr.io/braxhn/inv:latest`.
-   - Repot är privat, så imagen blir också privat. Antingen gör du paketet publikt under *Packages → Package settings*, eller så loggar du in på Unraid med `docker login ghcr.io` och en PAT med `read:packages`.
+   - Kontrollera under *Packages → inv → Package settings* att paketet är publikt, annars måste Unraid logga in med `docker login ghcr.io` och en PAT med `read:packages`.
 3. Kopiera `unraid/verkstad.xml` till `/boot/config/plugins/dockerMan/templates-user/my-verkstad.xml` (redan ifylld för `BraXhn`).
 4. I Unraid: **Docker → Add Container → Template: verkstad**. Fyll i lösenord och publik adress och klicka Apply.
 
