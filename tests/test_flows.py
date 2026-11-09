@@ -60,7 +60,7 @@ def test_everything():
     r = pub.post("/boka", data=form)
     assert r.status_code == 302 and "/s/" in r.headers["Location"], r.get_data(as_text=True)[:500]
     status_path = r.headers["Location"].split("?")[0]
-    assert "Din bokning" in pub.get(status_path).get_data(as_text=True)
+    assert "Beställning" in pub.get(status_path).get_data(as_text=True)
 
     # Samma tid ska inte kunna dubbelbokas (kapacitet 1)
     tok = csrf(pub, "/boka")
@@ -252,12 +252,12 @@ def test_v2():
     assert r.status_code == 302, r.get_data(as_text=True)[:400]
     status_path = r.headers["Location"].split("?")[0]
     page = pub.get(r.headers["Location"]).get_data(as_text=True)
-    assert "Din tid är bokad" in page and "Punktering fast" in page
+    assert "Tack för din beställning" in page and "Punktering fast" in page
     assert pub.get(status_path + "/kalender.ics").get_data(as_text=True).startswith("BEGIN:VCALENDAR")
     _t.sleep(0.5)
     subjects = [m["Subject"] for m in sent]
-    assert any("Bokning bekräftad" in x for x in subjects), subjects
-    conf = next(m for m in sent if "Bokning bekräftad" in m["Subject"])
+    assert any("Beställning bekräftad" in x for x in subjects), subjects
+    conf = next(m for m in sent if "Beställning bekräftad" in m["Subject"])
     assert any(part.get_filename() == "bokning.ics" for part in conf.iter_attachments())
     assert conf.get_body(("html",)) is not None
     assert any(m["To"] == "agare@test.se" for m in sent)  # notis till ägaren
@@ -349,8 +349,8 @@ def test_v2():
 
     # Startsidan och ärendeuppslag med nummer + hämtkod
     home = pub.get("/").get_data(as_text=True)
-    assert "Tjänster och priser" in home and "Punktering fast" in home and "Boka tid" in home
-    assert "Nästa lediga tid" in home
+    assert "Tjänster och priser" in home and "Punktering fast" in home and "Boka service" in home
+    assert "klart senast" in home
     tid = re.search(r'/boka\?tid=([0-9T:%A-F-]+)"', home)
     assert tid, "Förvald tid saknas"
     num, code = verkstad.connect().execute("SELECT number, pickup_code FROM work_orders WHERE id=?", (wid,)).fetchone()
@@ -454,8 +454,92 @@ def test_labels():
     print("ETIKETT-TESTER OK")
 
 
+def test_orders():
+    """Beställning: inlämning på tid eller enligt överenskommelse, klardatum efter kö, expresstillägg."""
+    verkstad._rl_hits.clear()
+    from datetime import date as _d
+    adm = login(A.test_client())
+    pub = A.test_client()
+    tok = csrf(adm, "/admin/installningar")
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "bokning", "booking_enabled": "1",
+                                           "auto_confirm": "1", "allow_by_agreement": "1",
+                                           "open_days": ["1", "2", "3", "4", "5", "6", "7"], "open_from": "08:00",
+                                           "open_to": "22:00", "slot_minutes": "60", "slot_capacity": "1",
+                                           "days_ahead": "14", "min_notice_hours": "0", "capacity_hours_week": "7",
+                                           "default_est_minutes": "60", "express_fee_per_day": "150",
+                                           "min_lead_days": "1", "ready_days_window": "21"})
+    # 7 h/vecka över 7 dagar = 60 min/dag
+    js = pub.get("/klar.json").json
+    assert js["per_day_minutes"] == 60
+    std = _d.fromisoformat(js["standard"])
+    opts = js["options"]
+    first = _d.fromisoformat(opts[0]["date"])
+    assert first == verkstad.now().date() + verkstad.timedelta(days=1)  # kortaste ledtid 1 dag
+    assert opts[0]["fee"] == (std - first).days * 150  # alla dagar är arbetsdagar här
+    assert next(o for o in opts if o["date"] == js["standard"])["fee"] == 0
+    assert all(o["fee"] == 0 for o in opts if o["date"] >= js["standard"])
+    # Längre jobb -> senare standarddatum
+    long_id = verkstad.connect().execute("SELECT id FROM services WHERE est_minutes >= 120 LIMIT 1").fetchone()[0]
+    js_long = pub.get(f"/klar.json?service_id={long_id}").json
+    assert js_long["standard"] > js["standard"]
+
+    # Beställning enligt överenskommelse med expressdatum: första försöket utan godkänt pris nekas
+    express_day = opts[0]["date"]
+    fee = opts[0]["fee"]
+    assert fee > 0
+    t = csrf(pub, "/boka")
+    data = {"_csrf": t, "name": "Erik Ek", "email": "erik@test.se", "phone": "0701111111", "category": "Cykel",
+            "item": "Monark", "description": "Rostig kedja", "dropoff_mode": "overens", "ready_date": express_day,
+            "fee_ack": "0", "consent": "1"}
+    r = pub.post("/boka", data=data)
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Expresstillägget" in body and f'value="{fee}' in body
+    t = csrf(pub, "/boka")
+    r = pub.post("/boka", data={**data, "_csrf": t, "fee_ack": str(fee)})
+    assert r.status_code == 302, r.get_data(as_text=True)[:600]
+    b = verkstad.connect().execute("SELECT * FROM bookings WHERE item='Monark'").fetchone()
+    assert b["slot_start"] == "" and b["dropoff_mode"] == "overens" and b["status"] == "ny"
+    assert b["desired_ready"] == express_day and b["express_fee"] == fee and b["est_minutes"] == 60
+    page = pub.get(r.headers["Location"]).get_data(as_text=True)
+    assert "Enligt överenskommelse" in page and "Expresstillägg" in page and "Vi kontaktar dig" in page
+    # Kön växer: standarddatum flyttas fram
+    assert pub.get("/klar.json").json["standard"] >= js["standard"]
+
+    # Admin bestämmer inlämningstid -> bekräftad
+    when = (verkstad.now() + verkstad.timedelta(days=1)).strftime("%Y-%m-%dT10:00")
+    adm.post(f"/admin/bokningar/{b['id']}/inlamning", data={"_csrf": tok, "when": when}, headers={"Referer": "/admin/bokningar"})
+    b2 = verkstad.connect().execute("SELECT status, slot_start, dropoff_mode FROM bookings WHERE id=?", (b["id"],)).fetchone()
+    assert tuple(b2) == ("bekraftad", when, "tid")
+    assert "Erik Ek" in adm.get("/admin/bokningar").get_data(as_text=True)
+
+    # Ta emot -> utlovat datum och expressrad på ärendet
+    r = adm.post(f"/admin/bokningar/{b['id']}/arbetsorder", data={"_csrf": tok})
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    w = verkstad.connect().execute("SELECT due_date, est_minutes FROM work_orders WHERE id=?", (wid,)).fetchone()
+    assert w["due_date"] == express_day and w["est_minutes"] == 60
+    line = verkstad.connect().execute("SELECT description, unit_price FROM wo_lines WHERE work_order_id=?", (wid,)).fetchone()
+    assert line["description"].startswith("Expresstillägg") and line["unit_price"] == fee
+
+    # Inlämning på tid utan expressdatum: standarddatum, ingen avgift, autobekräftad
+    html = pub.get("/boka").get_data(as_text=True)
+    slots = re.findall(r'name="slot" id="[^"]+" value="([^"]+)"', html)
+    t = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
+    r = pub.post("/boka", data={"_csrf": t, "name": "Frida F", "email": "frida@test.se", "category": "Elektronik",
+                                "item": "Radio", "description": "Brus", "dropoff_mode": "tid", "slot": slots[-1],
+                                "consent": "1"})
+    assert r.status_code == 302
+    b3 = verkstad.connect().execute("SELECT * FROM bookings WHERE item='Radio'").fetchone()
+    assert b3["status"] == "bekraftad" and b3["express_fee"] == 0 and b3["desired_ready"] == b3["standard_ready"]
+    assert b3["desired_ready"] > b3["slot_start"][:10]
+    # Startsidan visar klardatum, tjänsteadmin visar arbetstid
+    assert "klart senast" in pub.get("/").get_data(as_text=True)
+    assert 'name="est_minutes"' in adm.get("/admin/tjanster").get_data(as_text=True)
+    print("BESTÄLLNINGS-TESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
     test_labels()
+    test_orders()
     print("ALLA TESTER OK")

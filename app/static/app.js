@@ -106,28 +106,83 @@
     });
   }
 
+  function mode() { var m = checked('dropoff_mode'); return m ? m.value : 'tid'; }
+
+  function showMode() {
+    var box = form.querySelector('[data-dropoff="tid"]');
+    if (box) { box.classList.toggle('hide', mode() !== 'tid'); }
+  }
+
+  function pickReady(input) {
+    var fee = input ? parseInt(input.getAttribute('data-fee') || '0', 10) : 0;
+    var ack = document.getElementById('fee_ack');
+    if (ack) { ack.value = String(fee); }
+    setSum('ready', input ? labelText(input) : '–');
+    setSum('fee', fee ? ('+' + fee + ' kr') : 'Ingen kostnad');
+  }
+
+  // Hämtar klardatum och pris för vald tjänst och inlämningsdag
+  var readyTimer = null;
+  function refreshReady() {
+    clearTimeout(readyTimer);
+    readyTimer = setTimeout(function () {
+      var url = form.getAttribute('data-ready-url');
+      var grid = document.getElementById('ready-options');
+      if (!url || !grid || !window.fetch) { return; }
+      var svc = checked('service_id'), slot = checked('slot');
+      var drop = (mode() === 'tid' && slot) ? slot.value.slice(0, 10) : '';
+      fetch(url + '?service_id=' + encodeURIComponent(svc ? svc.value : '') + '&dropoff=' + encodeURIComponent(drop))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.options) { return; }
+          var prev = checked('ready_date'), keep = prev ? prev.value : null, found = false;
+          grid.textContent = '';
+          data.options.forEach(function (o) {
+            var wrap = document.createElement('div'); wrap.className = 'slot ready';
+            var inp = document.createElement('input');
+            inp.type = 'radio'; inp.name = 'ready_date'; inp.id = 'r-' + o.date; inp.value = o.date;
+            inp.setAttribute('data-fee', String(Math.round(o.fee)));
+            var lab = document.createElement('label'); lab.htmlFor = inp.id; lab.setAttribute('data-label', o.label);
+            var t = document.createElement('span'); t.textContent = o.label;
+            var sm = document.createElement('small'); sm.textContent = o.fee ? ('+' + Math.round(o.fee) + ' kr') : (o.standard ? 'Standard' : 'Ingen kostnad');
+            lab.appendChild(t); lab.appendChild(sm); wrap.appendChild(inp); wrap.appendChild(lab); grid.appendChild(wrap);
+            if (o.date === keep) { inp.checked = true; found = true; }
+          });
+          if (!found) {
+            var std = grid.querySelector('input[value="' + data.standard + '"]') || grid.querySelector('input');
+            if (std) { std.checked = true; }
+          }
+          form.querySelectorAll('[data-ready="standard"]').forEach(function (el) { el.textContent = data.standard_label; });
+          pickReady(checked('ready_date'));
+          updateSummary();
+        })
+        .catch(function () {});
+    }, 120);
+  }
+
   function updateSummary() {
     var cat = checked('category'), svc = checked('service_id'), slot = checked('slot');
     var item = (form.querySelector('[name=item]') || {}).value || '';
     var what = [labelText(svc) || (cat ? cat.value : ''), item].filter(Boolean).join(', ');
     setSum('what', what || 'Välj vad det gäller');
-    setSum('when', slot ? labelText(slot) : 'Ingen tid vald');
+    setSum('when', mode() === 'overens' ? 'Enligt överenskommelse' : (slot ? labelText(slot) : 'Välj inlämningstid'));
     form.querySelectorAll('[data-step]').forEach(function (st) {
       var key = st.getAttribute('data-step'), done = false;
       if (key === 'what') { done = !!cat && (!!svc || item.length > 1); }
-      if (key === 'when') { done = !!slot; }
+      if (key === 'when') { done = mode() === 'overens' || !!slot; }
+      if (key === 'ready') { done = !!checked('ready_date'); }
       if (key === 'who') { done = !!(form.querySelector('[name=name]').value && form.querySelector('[name=email]').value); }
       st.classList.toggle('done', done);
     });
   }
 
   form.addEventListener('change', function (e) {
-    if (e.target.name === 'category') { filterServices(); }
-    if (e.target.name === 'day') { showDay(); }
-    if (e.target.name === 'slot') {
-      var who = document.getElementById('step-who');
-      if (who && window.innerWidth < 700) { setTimeout(function () { who.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150); }
-    }
+    var n = e.target.name;
+    if (n === 'category') { filterServices(); }
+    if (n === 'day') { showDay(); }
+    if (n === 'dropoff_mode') { showMode(); }
+    if (n === 'ready_date') { pickReady(e.target); }
+    if (n === 'service_id' || n === 'slot' || n === 'dropoff_mode' || n === 'category') { refreshReady(); }
     updateSummary();
   });
   form.addEventListener('input', updateSummary);
@@ -145,5 +200,8 @@
   if (preSlot) { preSlot.checked = true; }
   showDay();
   if (preSlot) { preSlot.checked = true; }
+  showMode();
+  pickReady(checked('ready_date'));
   updateSummary();
+  if (checked('service_id') || preSlot) { refreshReady(); }
 })();

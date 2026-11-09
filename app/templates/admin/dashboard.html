@@ -35,9 +35,10 @@
       <ul class="list">
         {% for b in new_bookings %}
         <li>
-          <div class="time-box"><b>{{ b.slot_start[11:16] }}</b><span>{{ (b.slot_start|d).split(' ')[0] }} {{ (b.slot_start|d).split(' ')[1] }}</span></div>
-          <div class="grow"><span class="title">{{ b.item }}</span><span class="meta">{{ b.name }}, {{ b.service_name or b.category }}</span></div>
-          <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta</button></form>
+          {% if b.slot_start %}<div class="time-box"><b>{{ b.slot_start[11:16] }}</b><span>{{ (b.slot_start|d).split(' ')[0] }} {{ (b.slot_start|d).split(' ')[1] }}</span></div>{% else %}<div class="time-box"><b>–</b><span>avtalas</span></div>{% endif %}
+          <div class="grow"><span class="title">{{ b.item }}</span><span class="meta">{{ b.name }}, {{ b.service_name or b.category }}{% if b.desired_ready %}, klart {{ b.desired_ready|day }}{% endif %}{% if b.express_fee %}, express{% endif %}</span></div>
+          {% if b.slot_start %}<form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta</button></form>
+          {% else %}<a class="btn small ghost" href="{{ url_for('bookings_list') }}">Bestäm tid</a>{% endif %}
         </li>
         {% endfor %}
       </ul>
@@ -45,7 +46,7 @@
     {% endif %}
 
     <div class="card flush">
-      <div class="card-head"><h2>Idag</h2><a class="small" href="{{ url_for('bookings_list') }}">Alla bokningar</a></div>
+      <div class="card-head"><h2>Idag</h2><a class="small" href="{{ url_for('bookings_list') }}">Alla beställningar</a></div>
       <ul class="list">
         {% for b in todays %}
         <li>

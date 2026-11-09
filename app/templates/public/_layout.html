@@ -8,7 +8,7 @@
       <a href="{{ url_for('index') }}#sa-gar-det-till">Så går det till</a>
       <a href="{{ url_for('lookup') }}">Följ ditt ärende</a>
       <a href="{{ url_for('index') }}#kontakt">Kontakt</a>
-      {% if request.endpoint != 'book' %}<a class="btn small" href="{{ url_for('book') }}">Boka tid</a>{% endif %}
+      {% if request.endpoint != 'book' %}<a class="btn small" href="{{ url_for('book') }}">Boka service</a>{% endif %}
     </nav>
   </div>
 </header>
@@ -20,7 +20,7 @@
   <div class="in">
     <div><b>{{ S.business_name }}</b>{{ S.tagline }}{% if S.address %}<br>{{ S.address }}{% endif %}</div>
     <div><b>Kontakt</b>{% if S.contact_phone %}<a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}{% if S.contact_email %}<a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}{% if hours_text %}<span>Öppet {{ hours_text }}</span>{% endif %}</div>
-    <div><b>Kunder</b><a href="{{ url_for('book') }}">Boka tid</a><a href="{{ url_for('lookup') }}">Följ ditt ärende</a><a href="{{ url_for('privacy') }}">Personuppgifter</a></div>
+    <div><b>Kunder</b><a href="{{ url_for('book') }}">Boka service</a><a href="{{ url_for('lookup') }}">Följ ditt ärende</a><a href="{{ url_for('privacy') }}">Personuppgifter</a></div>
     <div class="legal">© {{ YEAR }} {{ S.business_name }}</div>
   </div>
 </footer>

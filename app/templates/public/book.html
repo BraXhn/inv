@@ -1,23 +1,24 @@
 {% extends "public/_layout.html" %}
 {% block robots %}index{% endblock %}
-{% block title %}Boka tid – {{ S.business_name }}{% endblock %}
+{% block title %}Boka service eller reparation – {{ S.business_name }}{% endblock %}
 {% macro price(s) %}{% if s.price_from is not none %}{{ '' if s.price_fixed else 'från ' }}{{ s.price_from|money }}{% else %}Offert{% endif %}{% endmacro %}
 {% block content %}
+{% set mode = form.get('dropoff_mode') or ('tid' if slots else 'overens') %}
+{% set chosen_ready = form.get('ready_date') or ready.standard %}
 <div class="page-title">
-  <h1>Boka tid</h1>
-  <p>{{ S.booking_intro or S.tagline }}</p>
+  <h1>Boka service eller reparation</h1>
+  <p>Beskriv jobbet, välj när du lämnar in och när du vill ha det klart. Du ser priset för snabbare leverans innan du skickar.</p>
 </div>
 
 {% if errors %}<ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
 
-{% if not slots %}
-<div class="step center">
-  <p class="mb0">Alla tider är tyvärr bokade just nu. Titta in igen om några dagar{% if S.contact_email %} eller mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
-</div>
+{% if not slots and not allow_agree %}
+<div class="step pub-narrow"><p class="mb0">Det går inte att beställa just nu. {% if S.contact_email %}Mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a> så hjälper vi dig.{% endif %}</p></div>
 {% else %}
-<form method="post" id="booking" class="book-layout" novalidate>
+<form method="post" id="booking" class="book-layout" novalidate data-ready-url="{{ url_for('ready_json') }}">
   <div>
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <input type="hidden" name="fee_ack" id="fee_ack" value="{{ form.get('fee_ack', '0') }}">
   <div class="hp" aria-hidden="true"><label>Lämna tomt <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 
   <section class="step" data-step="what">
@@ -30,7 +31,6 @@
       </div>
       {% endfor %}
     </div>
-
     {% if services %}
     <p class="help js-only" id="svc-hint">Välj cykel eller elektronik så visas tjänster och priser.</p>
     {% for c in categories %}
@@ -55,7 +55,6 @@
       {% endif %}
     {% endfor %}
     {% endif %}
-
     <label for="item">Märke och modell</label>
     <input id="item" type="text" name="item" maxlength="200" value="{{ form.get('item', '') }}" placeholder="t.ex. Scott Spark 930 eller Marantz PM6006" required>
     <label for="description">Beskrivning <span class="muted">(valfritt om du valt en tjänst)</span></label>
@@ -63,62 +62,91 @@
   </section>
 
   <section class="step" data-step="when">
-    <div class="step-head"><span class="step-num">2</span><h2>När passar det att lämna in?</h2></div>
-    <div class="days js-only" role="radiogroup" aria-label="Dag">
-      {% for day, times in slots %}
-      {% set parts = (day|d).split(' ') %}
-      <div class="day">
-        <input type="radio" name="day" id="d-{{ day.isoformat() }}" value="{{ day.isoformat() }}">
-        <label for="d-{{ day.isoformat() }}"><small>{{ parts[0] }}</small><b>{{ parts[1] }}</b><span>{{ parts[2] }}</span></label>
-      </div>
-      {% endfor %}
+    <div class="step-head"><span class="step-num">2</span><h2>När lämnar du in?</h2></div>
+    <div class="tiles">
+      {% if slots %}
+      <div class="tile"><input type="radio" name="dropoff_mode" id="dm-tid" value="tid" {{ 'checked' if mode == 'tid' }}>
+        <label for="dm-tid">{{ icon('calendar') }}<span class="txt">Välj en tid<span class="desc">Lämna in på en ledig tid.</span></span></label></div>
+      {% endif %}
+      {% if allow_agree %}
+      <div class="tile"><input type="radio" name="dropoff_mode" id="dm-overens" value="overens" {{ 'checked' if mode == 'overens' }}>
+        <label for="dm-overens">{{ icon('phone') }}<span class="txt">Enligt överenskommelse<span class="desc">Vi kontaktar dig och bestämmer tid.</span></span></label></div>
+      {% endif %}
     </div>
-    {% for day, times in slots %}
-    <div class="daygroup" data-day="{{ day.isoformat() }}">
-      <h3>{{ day|d }}</h3>
-      <div class="times">
-        {% for t in times %}
-        {% set sid = 's' ~ t|replace(':', '')|replace('-', '') %}
-        <div class="slot">
-          <input type="radio" name="slot" id="{{ sid }}" value="{{ t }}" {{ 'checked' if form.get('slot') == t }}>
-          <label for="{{ sid }}" data-label="{{ day|d }} kl {{ t[11:16] }}">{{ t[11:16] }}</label>
+    {% if slots %}
+    <div class="dropoff-slots mt" data-dropoff="tid">
+      <div class="days js-only" role="radiogroup" aria-label="Dag">
+        {% for day, times in slots %}
+        {% set parts = (day|d).split(' ') %}
+        <div class="day">
+          <input type="radio" name="day" id="d-{{ day.isoformat() }}" value="{{ day.isoformat() }}">
+          <label for="d-{{ day.isoformat() }}"><small>{{ parts[0] }}</small><b>{{ parts[1] }}</b><span>{{ parts[2] }}</span></label>
         </div>
         {% endfor %}
       </div>
+      {% for day, times in slots %}
+      <div class="daygroup" data-day="{{ day.isoformat() }}">
+        <h3>{{ day|d }}</h3>
+        <div class="times">
+          {% for t in times %}
+          {% set sid = 's' ~ t|replace(':', '')|replace('-', '') %}
+          <div class="slot">
+            <input type="radio" name="slot" id="{{ sid }}" value="{{ t }}" {{ 'checked' if form.get('slot') == t }}>
+            <label for="{{ sid }}" data-label="{{ day|d }} kl {{ t[11:16] }}">{{ t[11:16] }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+    {% endif %}
+  </section>
+
+  <section class="step" data-step="ready">
+    <div class="step-head"><span class="step-num">3</span><h2>När vill du ha det klart?</h2></div>
+    <p class="help mb0" id="ready-info">Med nuvarande kö är det klart senast <b data-ready="standard">{{ ready.standard_label }}</b> utan extra kostnad. Vill du ha det tidigare kostar det {{ S.express_fee_per_day }} kr per arbetsdag.</p>
+    <div class="ready-grid mt" id="ready-options">
+      {% for o in ready.options %}
+      <div class="slot ready">
+        <input type="radio" name="ready_date" id="r-{{ o.date }}" value="{{ o.date }}" data-fee="{{ o.fee|int }}" {{ 'checked' if chosen_ready == o.date }}>
+        <label for="r-{{ o.date }}" data-label="{{ o.label }}"><span>{{ o.label }}</span><small>{% if o.fee %}+{{ o.fee|int }} kr{% elif o.standard %}Standard{% else %}Ingen kostnad{% endif %}</small></label>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="help">Datumet räknas från inlämningsdagen och hur många jobb som redan ligger före. Expresstillägget läggs på ditt ärende.</p>
   </section>
 
   <section class="step" data-step="who" id="step-who">
-    <div class="step-head"><span class="step-num">3</span><h2>Dina uppgifter</h2></div>
+    <div class="step-head"><span class="step-num">4</span><h2>Dina uppgifter</h2></div>
     <label for="name">Namn</label>
     <input id="name" type="text" name="name" maxlength="120" autocomplete="name" value="{{ form.get('name', '') }}" required>
     <div class="fields">
       <div><label for="email">E-post</label><input id="email" type="email" name="email" maxlength="200" autocomplete="email" inputmode="email" value="{{ form.get('email', '') }}" required></div>
-      <div><label for="phone">Telefon <span class="muted">(valfritt)</span></label><input id="phone" type="tel" name="phone" maxlength="40" autocomplete="tel" value="{{ form.get('phone', '') }}"></div>
+      <div><label for="phone">Telefon <span class="muted">{{ '(för att bestämma tid)' if allow_agree else '(valfritt)' }}</span></label><input id="phone" type="tel" name="phone" maxlength="40" autocomplete="tel" value="{{ form.get('phone', '') }}"></div>
     </div>
     <label class="check mt"><input type="checkbox" name="consent" value="1" {{ 'checked' if form.get('consent') }} required>
-      <span>Jag godkänner att mina uppgifter sparas för att hantera bokningen. <a href="{{ url_for('privacy') }}" target="_blank">Så hanterar vi dem</a></span></label>
+      <span>Jag godkänner att mina uppgifter sparas för att hantera beställningen. <a href="{{ url_for('privacy') }}" target="_blank">Så hanterar vi dem</a></span></label>
   </section>
-
   </div>
 
   <aside class="book-aside">
     <div class="card">
-      <h2>Din bokning</h2>
+      <h2>Din beställning</h2>
       <dl>
-        <dt>Tid</dt><dd data-sum="when">Ingen tid vald</dd>
         <dt>Gäller</dt><dd data-sum="what">–</dd>
+        <dt>Inlämning</dt><dd data-sum="when">–</dd>
+        <dt>Klart senast</dt><dd data-sum="ready">{{ ready.standard_label }}</dd>
+        <dt>Express</dt><dd data-sum="fee">Ingen kostnad</dd>
       </dl>
-      <button type="submit" class="lg block">Boka tiden</button>
-      <p class="help">{% if hours %}Öppet {{ hours }}. {% endif %}{% if S.address %}{{ S.address }}. {% endif %}Du får en offert innan vi reparerar något utöver det du bokat.</p>
+      <button type="submit" class="lg block">Skicka beställning</button>
+      <p class="help">{% if hours %}Öppet {{ hours }}. {% endif %}Du får en offert innan vi gör något utöver det du beställt.</p>
     </div>
   </aside>
 
   <div class="summary">
     <div class="summary-in">
-      <div class="what"><b data-sum="when">Ingen tid vald</b><span data-sum="what">Välj vad det gäller och en tid</span></div>
-      <button type="submit" class="lg">Boka tiden</button>
+      <div class="what"><b data-sum="ready">Klart {{ ready.standard_label }}</b><span data-sum="when">Välj inlämning</span></div>
+      <button type="submit" class="lg">Skicka</button>
     </div>
   </div>
 </form>

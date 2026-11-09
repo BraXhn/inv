@@ -3,7 +3,7 @@
 {% block title %}Bokningar{% endblock %}
 {% block content %}
 <div class="spread">
-  <h1>Bokningar</h1>
+  <h1>Beställningar</h1>
   <div class="row">
     <a class="btn {{ '' if show != 'alla' else 'ghost' }} small" href="{{ url_for('bookings_list') }}">Aktuella</a>
     <a class="btn {{ '' if show == 'alla' else 'ghost' }} small" href="{{ url_for('bookings_list', visa='alla') }}">Alla</a>
@@ -13,16 +13,27 @@
 {% for b in rows %}
 <div class="card">
   <div class="spread">
-    <div><b>{{ b.slot_start|dt }}</b> <span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span></div>
+    <div><b>{{ b.item }}</b> <span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span></div>
     <div class="small muted">Inkom {{ b.created_at|dt }}</div>
   </div>
-  <p><b>{{ b.category }}: {{ b.item }}</b><br>{{ b.description }}</p>
+  <dl class="kv small mt">
+    <dt>Inlämning</dt><dd>{{ b.slot_start|dropoff }}</dd>
+    {% if b.desired_ready %}<dt>Klart senast</dt><dd>{{ b.desired_ready|day }}{% if b.express_fee %} <span class="pill offert">Express +{{ b.express_fee|money }}</span>{% endif %}</dd>{% endif %}
+    <dt>Gäller</dt><dd>{{ b.category }}{% if b.service_name %}, {{ b.service_name }}{% endif %}</dd>
+  </dl>
+  {% if b.description %}<p class="mt">{{ b.description }}</p>{% endif %}
   <p class="small"><a href="{{ url_for('customer_detail', cid=b.customer_id) }}">{{ b.name }}</a>
     {% if b.email %}, <a href="mailto:{{ b.email }}">{{ b.email }}</a>{% endif %}
     {% if b.phone %}, <a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% endif %}</p>
   <div class="row">
-    {% if b.status == 'ny' %}
-      <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta</button></form>
+    {% if b.status == 'ny' and b.slot_start %}
+      <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta inlämningstid</button></form>
+    {% endif %}
+    {% if b.status in ('ny', 'bekraftad') %}
+      <form method="post" action="{{ url_for('booking_set_dropoff', bid=b.id) }}" class="row">{{ csrf() }}
+        <input type="datetime-local" name="when" value="{{ b.slot_start }}" aria-label="Inlämningstid" class="dt-input">
+        <button class="small {{ '' if not b.slot_start else 'ghost' }}">{{ 'Bestäm inlämningstid' if not b.slot_start else 'Ändra tid' }}</button>
+      </form>
     {% endif %}
     {% if b.status in ('ny', 'bekraftad') %}
       <form method="post" action="{{ url_for('booking_to_wo', bid=b.id) }}" class="inline">{{ csrf() }}<button class="small ghost">Lämnats in → arbetsorder</button></form>
@@ -36,7 +47,7 @@
   </div>
 </div>
 {% else %}
-<p class="muted">Inga bokningar.</p>
+<p class="muted">Inga beställningar.</p>
 {% endfor %}
 
 <div class="card">

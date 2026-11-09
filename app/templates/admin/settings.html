@@ -41,6 +41,16 @@
     <label class="check"><input type="checkbox" name="booking_enabled" value="1" {{ 'checked' if S.booking_enabled == '1' }}> <span><b>Bokningssidan är öppen</b></span></label>
     <label class="check"><input type="checkbox" name="auto_confirm" value="1" {{ 'checked' if S.auto_confirm == '1' }}> <span><b>Bekräfta automatiskt</b> – kunden får bekräftelse direkt. Avstängt: du bekräftar varje bokning.</span></label>
     <label class="check"><input type="checkbox" name="reminder_enabled" value="1" {{ 'checked' if S.reminder_enabled == '1' }}> <span><b>Påminnelse dagen före</b> via e-post</span></label>
+    <label class="check"><input type="checkbox" name="allow_by_agreement" value="1" {{ 'checked' if S.allow_by_agreement == '1' }}> <span><b>Tillåt inlämning enligt överenskommelse</b> – kunden väljer ingen tid, du bestämmer den sedan</span></label>
+    <h3>Kapacitet och klardatum</h3>
+    <div class="fields">
+      <div><label>Arbetstimmar per vecka</label><input type="number" name="capacity_hours_week" value="{{ S.capacity_hours_week }}" min="1" step="0.5"></div>
+      <div><label>Standardtid per jobb (min)</label><input type="number" name="default_est_minutes" value="{{ S.default_est_minutes }}" min="10" step="5"></div>
+      <div><label>Expresstillägg per arbetsdag (kr)</label><input type="number" name="express_fee_per_day" value="{{ S.express_fee_per_day }}" min="0" step="10"></div>
+      <div><label>Kortaste ledtid (arbetsdagar)</label><input type="number" name="min_lead_days" value="{{ S.min_lead_days }}" min="0" max="10"></div>
+      <div><label>Datum att välja bland</label><input type="number" name="ready_days_window" value="{{ S.ready_days_window }}" min="5" max="60"></div>
+    </div>
+    <p class="help">Klardatum = när kön (öppna jobb + beställningar, med tjänsternas arbetstid) hinns med på dina timmar, fördelade på öppna dagar. Tidigare datum kostar expresstillägget per arbetsdag. Kortaste ledtid 0 = samma dag som inlämning.</p>
     <label>Introtext på bokningssidan</label><input type="text" name="booking_intro" value="{{ S.booking_intro }}">
     <label>Löfte om svar (vid manuell bekräftelse)</label><input type="text" name="response_promise" value="{{ S.response_promise }}">
     <label>Öppna dagar</label>

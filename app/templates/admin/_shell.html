@@ -12,7 +12,7 @@
       {{ navlink('dashboard', 'Översikt', 'home', ep == 'dashboard') }}
       {{ navlink('board', 'Tavla', 'board', ep == 'board', nav_timers, True) }}
       {{ navlink('wo_list', 'Arbetsordrar', 'list', ep.startswith('wo_')) }}
-      {{ navlink('bookings_list', 'Bokningar', 'calendar', ep.startswith('booking'), nav_new_bookings) }}
+      {{ navlink('bookings_list', 'Beställningar', 'calendar', ep.startswith('booking'), nav_new_bookings) }}
       {{ navlink('customers_list', 'Kunder', 'users', ep.startswith('customer')) }}
       <div class="nav-sep"></div>
       {{ navlink('parts_list', 'Lager', 'box', ep.startswith('part') or ep == 'shopping_list') }}
@@ -47,7 +47,7 @@
 <nav class="bottomnav no-print">
   <a href="{{ url_for('dashboard') }}" class="{{ 'on' if ep == 'dashboard' }}">{{ icon('home') }}Översikt</a>
   <a href="{{ url_for('board') }}" class="{{ 'on' if ep == 'board' }}">{{ icon('board') }}Tavla{% if nav_timers %}<span class="dot"></span>{% endif %}</a>
-  <a href="{{ url_for('bookings_list') }}" class="{{ 'on' if ep.startswith('booking') }}">{{ icon('calendar') }}Bokningar{% if nav_new_bookings %}<span class="dot"></span>{% endif %}</a>
+  <a href="{{ url_for('bookings_list') }}" class="{{ 'on' if ep.startswith('booking') }}">{{ icon('calendar') }}Beställningar{% if nav_new_bookings %}<span class="dot"></span>{% endif %}</a>
   <a href="{{ url_for('parts_list') }}" class="{{ 'on' if ep.startswith('part') }}">{{ icon('box') }}Lager</a>
   <a href="{{ url_for('settings_page') }}" class="{{ 'on' if ep in ('settings_page', 'customers_list', 'locations_list', 'services_admin') }}">{{ icon('menu') }}Mer</a>
 </nav>

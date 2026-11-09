@@ -8,24 +8,21 @@
     <h1>{{ S.tagline or S.business_name }}</h1>
     <p class="lead">{{ S.booking_intro }}</p>
     <div class="cta">
-      <a class="btn lg" href="{{ url_for('book') }}">Boka tid</a>
+      <a class="btn lg" href="{{ url_for('book') }}">Boka service</a>
       <a class="btn lg ghost" href="{{ url_for('lookup') }}">Följ ditt ärende</a>
     </div>
   </div>
   <aside class="hero-card">
-    {% if next_slot %}
-      <div class="muted small">Nästa lediga tid</div>
-      <div class="slot-big">{{ next_slot|dt }}</div>
-    {% else %}
-      <div class="muted small">Bokning</div>
-      <div class="slot-big">Inga lediga tider just nu</div>
-    {% endif %}
+    <div class="muted small">Lämnar du in idag är det klart senast</div>
+    <div class="slot-big">{{ ready_label }}</div>
     <dl>
+      {% if next_slot %}<dt>Nästa inlämning</dt><dd>{{ next_slot|dt }}</dd>{% endif %}
       {% if hours %}<dt>Öppet</dt><dd>{{ hours }}</dd>{% endif %}
       {% if S.address %}<dt>Adress</dt><dd>{{ S.address }}</dd>{% endif %}
       {% if S.contact_phone %}<dt>Telefon</dt><dd><a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a></dd>{% endif %}
     </dl>
-    {% if next_slot %}<a class="btn block" href="{{ url_for('book', tid=next_slot) }}">Boka den tiden</a>{% endif %}
+    <a class="btn block" href="{{ url_for('book', tid=next_slot) if next_slot else url_for('book') }}">Boka service</a>
+    <p class="help">Behöver du det snabbare kan du välja ett tidigare datum mot ett expresstillägg.</p>
   </aside>
 </section>
 
@@ -57,7 +54,7 @@
     <p>Du vet hela tiden var ditt ärende är och vad det kostar.</p>
   </div>
   <ol class="process">
-    <li><b>Boka en tid</b><p>Välj tjänst och en tid som passar. Du får en bekräftelse med kalenderfil.</p></li>
+    <li><b>Beställ</b><p>Välj tjänst, när du lämnar in och när du vill ha det klart. Du ser priset direkt.</p></li>
     <li><b>Lämna in</b><p>Du får en mottagningssedel med ärendenummer och hämtkod.</p></li>
     <li><b>Godkänn offerten</b><p>Behövs mer än det avtalade får du en offert som du godkänner med ett klick.</p></li>
     <li><b>Hämta</b><p>Du får besked när det är klart. Visa sedeln eller hämtkoden när du hämtar.</p></li>
@@ -69,7 +66,8 @@
   <div class="faq">
     <details><summary>Vad kostar det?</summary><p>Priserna ovan gäller. För felsökning och större jobb får du en offert först. Vi gör inget arbete utöver det du godkänt.</p></details>
     <details><summary>Hur vet jag när det är klart?</summary><p>Du får en länk där du följer ärendet steg för steg, och ett mejl när det är klart för hämtning. Du kan också slå upp ärendet med numret och hämtkoden på mottagningssedeln.</p></details>
-    <details><summary>Kan jag avboka eller byta tid?</summary><p>Ja. Använd länken i bekräftelsemejlet för att avboka och boka sedan en ny tid.</p></details>
+    <details><summary>Hur snabbt blir det klart?</summary><p>När du beställer ser du det datum vi hinner med utifrån hur många jobb som redan ligger före. Behöver du det tidigare kan du välja ett snabbare datum mot ett expresstillägg per arbetsdag.</p></details>
+    <details><summary>Kan jag avbryta en beställning?</summary><p>Ja, så länge du inte lämnat in. Använd länken i bekräftelsemejlet.</p></details>
     <details><summary>Vad ska jag ta med?</summary><p>Det du lämnar in och tillbehör som laddare, nyckel eller lås. Säkerhetskopiera data på elektronik innan du lämnar in.</p></details>
   </div>
 </section>
@@ -77,12 +75,12 @@
 <section class="section" id="kontakt">
   <div class="section-head"><h2>Hitta hit</h2></div>
   <div class="contact-grid">
-    {% if hours %}<div class="card"><h3>Öppettider</h3><p class="mb0">{{ hours }}</p><p class="help">Inlämning och hämtning sker på bokad tid.</p></div>{% endif %}
+    {% if hours %}<div class="card"><h3>Öppettider</h3><p class="mb0">{{ hours }}</p><p class="help">Inlämning och hämtning på avtalad tid.</p></div>{% endif %}
     {% if S.address %}<div class="card"><h3>Adress</h3><p class="mb0">{{ S.address }}</p><p class="help"><a href="https://www.google.com/maps/search/?api=1&query={{ S.address|urlencode }}" target="_blank" rel="noopener">Visa på karta</a></p></div>{% endif %}
     <div class="card"><h3>Kontakt</h3>
       {% if S.contact_phone %}<p class="mb0"><a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a></p>{% endif %}
       {% if S.contact_email %}<p class="mb0"><a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a></p>{% endif %}
-      <p class="help">Snabbast svar får du genom att boka.</p></div>
+      <p class="help">Snabbast svar får du genom att beställa här.</p></div>
   </div>
 </section>
 {% endblock %}

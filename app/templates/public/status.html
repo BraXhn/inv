@@ -1,8 +1,8 @@
 {% extends "public/_layout.html" %}
-{% block title %}Din bokning – {{ S.business_name }}{% endblock %}
+{% block title %}Din beställning – {{ S.business_name }}{% endblock %}
 {% block content %}
 <div class="pub-narrow">
-{% if not (booking and is_new and not wo) %}<div class="page-title"><h1>{{ 'Ditt ärende' if wo else 'Din bokning' }}</h1></div>{% endif %}
+{% if not (booking and is_new and not wo) %}<div class="page-title"><h1>{{ 'Ditt ärende' if wo else 'Din beställning' }}</h1></div>{% endif %}
 
 {% if wo %}
   {% set order = ['inlamnad','felsokning','pagar','klar','utlamnad'] %}
@@ -60,33 +60,35 @@
   {% if is_new %}
   <div class="success">
     <div class="ring">{{ icon('check') }}</div>
-    <h1>{{ 'Din tid är bokad!' if booking.status == 'bekraftad' else 'Tack – vi har fått din bokning!' }}</h1>
-    <p class="muted">{% if booking.status == 'bekraftad' %}Bekräftelse är skickad till din e-post.{% else %}{{ S.response_promise }}{% endif %} Spara gärna den här sidan.</p>
+    <h1>Tack för din beställning!</h1>
+    <p class="muted">{% if booking.status == 'bekraftad' %}Bekräftelsen är skickad till din e-post.{% elif not booking.slot_start %}Vi kontaktar dig för att bestämma när du lämnar in.{% else %}{{ S.response_promise }}{% endif %} Spara gärna den här sidan.</p>
   </div>
   {% endif %}
   <section class="step">
-    <div class="spread"><h2 class="mb0">Din bokning</h2><span class="pill {{ booking.status }}">{{ 'Bekräftad' if booking.status == 'bekraftad' else BOOKING_STATUSES[booking.status] }}</span></div>
+    <div class="spread"><h2 class="mb0">Beställning</h2><span class="pill {{ booking.status }}">{{ 'Bekräftad' if booking.status == 'bekraftad' else BOOKING_STATUSES[booking.status] }}</span></div>
     <dl class="kv mt">
-      <dt>Tid</dt><dd>{{ booking.slot_start|dt }}</dd>
-      <dt>Gäller</dt><dd>{{ booking.category }} – {{ booking.item }}</dd>
+      <dt>Gäller</dt><dd>{{ booking.category }}: {{ booking.item }}</dd>
       {% if service %}<dt>Tjänst</dt><dd>{{ service.name }}</dd>{% endif %}
+      <dt>Inlämning</dt><dd>{{ booking.slot_start|dropoff }}</dd>
+      {% if booking.desired_ready %}<dt>Klart senast</dt><dd>{{ booking.desired_ready|day }}</dd>{% endif %}
+      {% if booking.express_fee %}<dt>Expresstillägg</dt><dd>{{ booking.express_fee|money }}</dd>{% endif %}
       {% if S.address %}<dt>Adress</dt><dd>{{ S.address }}</dd>{% endif %}
     </dl>
     {% if booking.status in ('ny', 'bekraftad') %}
     <div class="actions mt">
-      <a class="btn" href="{{ url_for('booking_ics', token=token) }}">Lägg till i kalendern</a>
+      {% if booking.slot_start %}<a class="btn" href="{{ url_for('booking_ics', token=token) }}">Lägg inlämningen i kalendern</a>{% endif %}
       <form method="post" action="{{ url_for('cancel_booking', token=token) }}" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-        <button class="danger" data-confirm="Vill du avboka tiden?">Avboka</button>
+        <button class="danger" data-confirm="Vill du avbryta beställningen?">Avbryt beställningen</button>
       </form>
     </div>
     {% endif %}
-    {% if booking.status in ('avbojd', 'avbokad') %}<p class="mt"><a class="btn" href="{{ url_for('book') }}">Boka en ny tid</a></p>{% endif %}
+    {% if booking.status in ('avbojd', 'avbokad') %}<p class="mt"><a class="btn" href="{{ url_for('book') }}">Gör en ny beställning</a></p>{% endif %}
   </section>
   <section class="step">
     <h2>Så går det till</h2>
     <ol class="small muted mb0">
-      <li>Lämna in på din bokade tid. Ta med laddare, nyckel eller tillbehör.</li>
+      <li>Lämna in på avtalad tid. Ta med laddare, nyckel eller tillbehör.</li>
       <li>Vi felsöker och skickar en offert hit och till din e-post innan vi reparerar.</li>
       <li>Du följer allt på den här sidan och får besked när det är klart.</li>
     </ol>

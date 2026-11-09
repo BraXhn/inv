@@ -2,7 +2,7 @@
 {% from "admin/_macros.html" import csrf %}
 {% block title %}Tjänster & priser{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Tjänster och priser</h1><div class="sub">Det här ser kunden på bokningssidan. Utan pris står det ”Offert”. Ett fast pris läggs på ärendet direkt när det tas emot.</div></div></div>
+<div class="page-head"><div><h1>Tjänster och priser</h1><div class="sub">Det här ser kunden på bokningssidan. Utan pris står det ”Offert”. Ett fast pris läggs på ärendet direkt när det tas emot. Arbetstiden används för att räkna ut klardatum utifrån kön.</div></div></div>
 
 {% for s in rows %}
 <form method="post" class="card">
@@ -11,6 +11,7 @@
     <div><label>Namn</label><input type="text" name="name" value="{{ s.name }}" maxlength="120" required></div>
     <div><label>Kategori</label><select name="category">{% for c in categories %}<option {{ 'selected' if c == s.category }}>{{ c }}</option>{% endfor %}</select></div>
     <div><label>Pris (kr)</label><input type="number" name="price_from" value="{{ '%g'|format(s.price_from) if s.price_from is not none else '' }}" min="0" step="1" placeholder="Offert"></div>
+    <div><label>Arbetstid (min)</label><input type="number" name="est_minutes" value="{{ s.est_minutes or '' }}" min="5" step="5" placeholder="{{ S.default_est_minutes }}"></div>
     <div><label>Ordning</label><input type="number" name="sort" value="{{ s.sort }}"></div>
   </div>
   <label>Beskrivning</label><input type="text" name="description" value="{{ s.description or '' }}" maxlength="500">
@@ -31,6 +32,7 @@
     <div><label>Namn</label><input type="text" name="name" maxlength="120" required></div>
     <div><label>Kategori</label><select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>
     <div><label>Pris (kr)</label><input type="number" name="price_from" min="0" step="1" placeholder="Offert"></div>
+    <div><label>Arbetstid (min)</label><input type="number" name="est_minutes" min="5" step="5" placeholder="{{ S.default_est_minutes }}"></div>
     <div><label>Ordning</label><input type="number" name="sort" value="100"></div>
   </div>
   <label>Beskrivning</label><input type="text" name="description" maxlength="500">

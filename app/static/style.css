@@ -167,7 +167,7 @@ tr.sum th, tr.sum td { font-size: 1rem; color: var(--ink); font-weight: 650; bor
 
 label { display: block; font-size: .86rem; font-weight: 500; margin: .85rem 0 .35rem; color: var(--ink-2); }
 input[type=text], input[type=email], input[type=tel], input[type=number], input[type=password], input[type=date],
-input[type=url], input[type=search], input[type=color], select, textarea {
+input[type=url], input[type=search], input[type=color], input[type=datetime-local], select, textarea {
   width: 100%; padding: .6rem .75rem; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface);
   color: var(--ink); font: inherit; box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
 input[type=color] { padding: .2rem; height: 2.55rem; }
@@ -457,3 +457,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .label { border-color: #bbb; }
 }
 .site-nav nav a.btn { color: var(--on-primary); }
+.ready-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: .5rem; }
+.slot.ready label { display: flex; flex-direction: column; gap: .1rem; padding: .55rem .4rem; line-height: 1.25; font-size: .9rem; }
+.slot.ready label small { font-weight: 500; font-size: .76rem; color: var(--muted); }
+.slot.ready input:checked + label small { color: inherit; opacity: .75; }
+.slot.ready input[data-fee="0"] + label small { color: var(--ok); }
+.slot.ready input[data-fee="0"]:checked + label small { color: inherit; }
+.dropoff-slots.hide { display: none; }
+
+.dt-input { width: auto !important; min-width: 220px; }

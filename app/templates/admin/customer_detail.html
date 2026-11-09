@@ -6,9 +6,9 @@
 <div class="grid-2">
   <div>
     <div class="card"><h2>Arbetsordrar</h2>{{ wo_table(wos, show_customer=False) }}</div>
-    <div class="card"><h2>Bokningar</h2>
-      {% for b in bookings %}<p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> {{ b.slot_start|dt }} – {{ b.item }}</p>
-      {% else %}<p class="muted">Inga bokningar.</p>{% endfor %}
+    <div class="card"><h2>Beställningar</h2>
+      {% for b in bookings %}<p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> {{ b.slot_start|dropoff }} – {{ b.item }}</p>
+      {% else %}<p class="muted">Inga beställningar.</p>{% endfor %}
     </div>
   </div>
   <div>

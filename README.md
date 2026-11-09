@@ -2,6 +2,12 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.1: beställning istället för tidsbokning
+- **Kunden beställer en service eller reparation**, inte en tid. Inlämningen sker på en vald tid eller **enligt överenskommelse**. I det senare fallet bestämmer du tiden under Beställningar, och kunden får en bekräftelse med kalenderfil.
+- **Klardatumet räknas ut från kön:** öppna ärenden och beställningar, med varje tjänsts uppskattade arbetstid, mot dina arbetstimmar per vecka fördelade på öppna dagar.
+- **Snabbare mot betalning:** kunden kan välja ett tidigare datum. Tillägget är *expresstillägg × antal arbetsdagar tidigare* och visas direkt. Priset kontrolleras igen när beställningen skickas, och tillägget läggs automatiskt som rad på ärendet.
+- **Det här ställer du in** under Inställningar → Bokning → Kapacitet och klardatum: arbetstimmar per vecka, standardtid per jobb, expresstillägg per dag och kortaste ledtid. Arbetstid per tjänst ställer du in under Tjänster och priser.
+
 ## Nytt i 3.0
 - **Startsidan** (`/`) har navigering, tjänster och priser, "så går det till", vanliga frågor, kontakt och nästa lediga tid som går att boka med ett klick.
 - **Följ ditt ärende** (`/arende`): kunden slår upp sitt ärende med ärendenumret och hämtkoden från mottagningssedeln.

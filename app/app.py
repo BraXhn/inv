@@ -28,7 +28,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -113,6 +113,12 @@ DEFAULT_SETTINGS = {
     "label_on_intake": "1",
     "label_customer_on_intake": "0",
     "intake_terms": "Objektet förvaras på kundens risk utöver normal aktsamhet. Vi kontaktar dig med offert innan arbete utöver avtalat uppdrag utförs. Ej hämtade objekt förvaras i 3 månader efter att de meddelats klara.",
+    "capacity_hours_week": "10",
+    "default_est_minutes": "60",
+    "express_fee_per_day": "150",
+    "min_lead_days": "1",
+    "ready_days_window": "10",
+    "allow_by_agreement": "1",
     "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
     "reminder_enabled": "1",
     "smtp_host": "",
@@ -286,6 +292,13 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("work_orders", "service_id", "INTEGER"),
     ("bookings", "reminder_sent_at", "TEXT"),
     ("work_orders", "pickup_code", "TEXT"),
+    ("services", "est_minutes", "INTEGER"),
+    ("work_orders", "est_minutes", "INTEGER"),
+    ("bookings", "dropoff_mode", "TEXT"),
+    ("bookings", "desired_ready", "TEXT"),
+    ("bookings", "standard_ready", "TEXT"),
+    ("bookings", "express_fee", "REAL"),
+    ("bookings", "est_minutes", "INTEGER"),
 ]
 
 
@@ -314,6 +327,12 @@ def init_db():
             conn.executemany("INSERT INTO services(category, name, description, sort) VALUES (?,?,?,?)",
                              DEFAULT_SERVICES)
         conn.execute("INSERT INTO settings(key, value) VALUES ('services_seeded', '1')")
+    if not conn.execute("SELECT value FROM settings WHERE key='estimates_seeded'").fetchone():
+        for name, minutes in (("Service – bas", 60), ("Service – stor", 150), ("Punktering / slangbyte", 30),
+                              ("Bromsar", 60), ("Växlar och drivlina", 60), ("Felsökning", 60),
+                              ("Lödning och kontakter", 45), ("Byte av batteri", 45), ("Ljud och förstärkare", 120)):
+            conn.execute("UPDATE services SET est_minutes=? WHERE name=? AND est_minutes IS NULL", (minutes, name))
+        conn.execute("INSERT INTO settings(key, value) VALUES ('estimates_seeded', '1')")
     if os.environ.get("PUBLIC_URL"):  # miljövariabeln vinner, så att Unraid-mallen styr
         conn.execute("UPDATE settings SET value=? WHERE key='public_url'", (os.environ["PUBLIC_URL"].rstrip("/"),))
     for row in conn.execute("SELECT id FROM work_orders WHERE pickup_code IS NULL").fetchall():
@@ -633,11 +652,20 @@ def notify_admin(subject, body, link=None):
     send_mail(to, subject, text, html, kind="notis")
 
 
+def fmt_dropoff(val):
+    return fmt_dt(val) if val else "Enligt överenskommelse"
+
+
 def booking_details(b, service_name=None):
     s = settings()
-    d = [("Tid", fmt_dt(b["slot_start"])), ("Gäller", f"{b['category']} – {b['item']}")]
+    d = [("Gäller", f"{b['category']}: {b['item']}")]
     if service_name:
         d.append(("Tjänst", service_name))
+    d.append(("Inlämning", fmt_dropoff(b["slot_start"])))
+    if b["desired_ready"]:
+        d.append(("Klart senast", fmt_dt(date.fromisoformat(b["desired_ready"]))))
+    if b["express_fee"]:
+        d.append(("Expresstillägg", fmt_money(b["express_fee"])))
     if s.get("address"):
         d.append(("Adress", s["address"]))
     return d
@@ -652,13 +680,13 @@ def send_booking_confirmation(b, name, email):
                      setting_int("slot_minutes", 30), f"Inlämning: {b['item']} – {s['business_name']}",
                      f"Din bokning: {link}", s.get("address", ""))
     ics.append("END:VCALENDAR")
-    mail_customer(email, f"Bokning bekräftad – {fmt_dt(b['slot_start'])}", "bokning_bekraftad",
-                  heading=f"Välkommen {fmt_dt(b['slot_start'])}!",
-                  paragraphs=[f"Hej {name}! Din tid är bekräftad. Ta med {b['item']} och eventuella tillbehör "
+    mail_customer(email, f"Beställning bekräftad – inlämning {fmt_dt(b['slot_start'])}", "bokning_bekraftad",
+                  heading="Din beställning är bekräftad",
+                  paragraphs=[f"Hej {name}! Lämna in {b['item']} {fmt_dt(b['slot_start'])}. Ta med eventuella tillbehör "
                               f"som laddare eller lås."],
                   details=booking_details(b, svc["name"] if svc else None),
                   button=("Visa eller avboka", link),
-                  note="Kalenderfilen i mejlet lägger in tiden i din kalender.",
+                  note="Kalenderfilen i mejlet lägger in inlämningstiden i din kalender.",
                   attachments=[("bokning.ics", "\r\n".join(ics).encode() + b"\r\n", "text/calendar")])
 
 
@@ -751,7 +779,8 @@ def icon(name, cls=""):
     return Markup(f'<svg class="i {cls}" aria-hidden="true"><use href="/static/icons.svg#{name}"></use></svg>')
 
 
-app.jinja_env.filters.update(age=age_text)
+app.jinja_env.filters.update(age=age_text, dropoff=lambda v: fmt_dropoff(v),
+                             day=lambda v: fmt_dt(date.fromisoformat(v)) if v else "")
 app.jinja_env.globals.update(csrf_token=csrf_token, WO_STATUSES=WO_STATUSES,
                              WO_STATUS_LABEL=WO_STATUS_LABEL, WO_STATUS_SHORT=WO_STATUS_SHORT,
                              BOOKING_STATUSES=BOOKING_STATUSES, qr_svg=qr_svg, tag_url=tag_url,
@@ -839,6 +868,104 @@ def available_slots():
 
 
 # ---------------------------------------------------------------------------
+# Kapacitet och klardatum
+# ---------------------------------------------------------------------------
+def _open_days_set():
+    s = settings()
+    days = {int(d) for d in s["open_days"].split(",") if d.strip().isdigit()} or {1, 2, 3, 4, 5}
+    blocked = {d.strip() for d in s["blocked_dates"].split(",") if d.strip()}
+    return days, blocked
+
+
+def _is_workday(d, days, blocked):
+    return d.isoweekday() in days and d.isoformat() not in blocked
+
+
+def nth_workday(start, n):
+    """n:te arbetsdagen efter start (n=0: start själv om det är en arbetsdag, annars nästa)."""
+    days, blocked = _open_days_set()
+    d = start
+    while not _is_workday(d, days, blocked):
+        d += timedelta(days=1)
+    count = 0
+    while count < n:
+        d += timedelta(days=1)
+        if _is_workday(d, days, blocked):
+            count += 1
+    return d
+
+
+def workdays_between(a, b):
+    """Antal arbetsdagar från a (exkl.) till b (inkl.)."""
+    days, blocked = _open_days_set()
+    n, d = 0, a
+    while d < b:
+        d += timedelta(days=1)
+        if _is_workday(d, days, blocked):
+            n += 1
+    return n
+
+
+def service_estimate(service=None):
+    if service is not None and service["est_minutes"]:
+        return int(service["est_minutes"])
+    return max(10, setting_int("default_est_minutes", 60))
+
+
+def workload_minutes(exclude_booking=None):
+    """Kvarvarande uppskattad arbetstid i kön: öppna ärenden + beställningar som inte lämnats in än."""
+    default = max(10, setting_int("default_est_minutes", 60))
+    total = 0
+    for w in q("SELECT est_minutes, labor_minutes FROM work_orders WHERE status IN "
+               "('inlamnad','felsokning','offert','vantar_delar','pagar')"):
+        total += max(15, (w["est_minutes"] or default) - (w["labor_minutes"] or 0))
+    for b in q("SELECT id, est_minutes FROM bookings WHERE status IN ('ny','bekraftad')"):
+        if b["id"] != exclude_booking:
+            total += b["est_minutes"] or default
+    return total
+
+
+def ready_options(dropoff, est_minutes):
+    """Datum kunden kan välja som klardatum, med expresstillägg för datum före standard.
+
+    Standard = när kön (inkl. detta jobb) hinns med på kapaciteten per arbetsdag, räknat från inlämningsdagen.
+    """
+    days, _ = _open_days_set()
+    per_day = max(30.0, setting_int("capacity_hours_week", 10) * 60 / max(1, len(days)))
+    need_days = int(-(-(workload_minutes() + est_minutes) // per_day))  # avrunda uppåt
+    min_lead = max(0, setting_int("min_lead_days", 1))
+    earliest = nth_workday(dropoff, min_lead)
+    standard = nth_workday(dropoff, max(min_lead, need_days))
+    fee_day = max(0, setting_int("express_fee_per_day", 150))
+    window = max(5, min(60, setting_int("ready_days_window", 21)))
+    opts, d = [], earliest
+    while len(opts) < window:
+        if _is_workday(d, *_open_days_set()):
+            earlier = workdays_between(d, standard) if d < standard else 0
+            opts.append({"date": d.isoformat(), "label": fmt_dt(d), "fee": earlier * fee_day,
+                         "standard": d == standard})
+        d += timedelta(days=1)
+    return {"standard": standard.isoformat(), "standard_label": fmt_dt(standard), "options": opts,
+            "per_day_minutes": int(per_day)}
+
+
+@app.route("/klar.json")
+def ready_json():
+    """Publikt: klardatum och pris för vald tjänst och inlämningsdag (inga personuppgifter)."""
+    if rate_limited(f"ready:{client_ip()}", 120, 600):
+        return {"error": "rate_limited"}, 429
+    svc = None
+    if request.args.get("service_id", "").isdigit():
+        svc = q("SELECT * FROM services WHERE id=? AND active=1", (int(request.args["service_id"]),), one=True)
+    try:
+        drop = date.fromisoformat(request.args.get("dropoff", "")[:10])
+    except ValueError:
+        drop = now().date()
+    drop = max(drop, now().date())
+    return ready_options(drop, service_estimate(svc))
+
+
+# ---------------------------------------------------------------------------
 # Publika sidor
 # ---------------------------------------------------------------------------
 @app.route("/")
@@ -846,8 +973,9 @@ def index():
     slots = available_slots() if settings().get("booking_enabled") == "1" else []
     next_slot = slots[0][1][0] if slots else None
     services = active_services()
+    ro = ready_options(now().date(), service_estimate(None))
     return render_template("public/home.html", services=services, categories=categories(), next_slot=next_slot,
-                           hours=opening_hours_text(), free_days=len(slots))
+                           hours=opening_hours_text(), free_days=len(slots), ready_label=ro["standard_label"])
 
 
 @app.route("/arende", methods=["GET", "POST"])
@@ -882,24 +1010,28 @@ def privacy():
 
 @app.route("/boka", methods=["GET", "POST"])
 def book():
+    """Beställ en service eller reparation: inlämning på vald tid eller enligt överenskommelse,
+    och önskat klardatum (tidigare än kön medger kostar ett expresstillägg per arbetsdag)."""
     s = settings()
     if s.get("booking_enabled") != "1":
         return render_template("public/closed.html")
     slots = available_slots()
     valid_slots = {k for _, day in slots for k in day}
+    allow_agree = s.get("allow_by_agreement") == "1"
     form = request.form if request.method == "POST" else {}
     if request.method == "GET" and request.args.get("tid") in valid_slots:
-        form = {"slot": request.args["tid"]}  # förvald tid från startsidan
+        form = {"slot": request.args["tid"], "dropoff_mode": "tid"}  # förvald tid från startsidan
     errors = []
 
     if request.method == "POST":
         if form.get("website"):  # honeypot – botar fyller i allt
             return redirect(url_for("book"))
         if rate_limited(f"book:{client_ip()}", 5, 3600):
-            errors.append("För många bokningar från din anslutning. Försök igen senare.")
+            errors.append("För många beställningar från din anslutning. Försök igen senare.")
         name, email, phone = clean(form.get("name"), 120), clean(form.get("email"), 200).lower(), clean(form.get("phone"), 40)
         category, item = clean(form.get("category"), 40), clean(form.get("item"), 200)
         description, slot = clean(form.get("description"), 3000), form.get("slot", "")
+        mode = "overens" if (form.get("dropoff_mode") == "overens" and allow_agree) else "tid"
         service_id = to_int(form.get("service_id")) or None
         service = None
         if service_id:
@@ -918,19 +1050,39 @@ def book():
             errors.append("Beskriv vad det är (t.ex. märke och modell).")
         if not description and not service:
             errors.append("Välj en tjänst eller beskriv kort vad du vill ha gjort.")
-        if slot not in valid_slots:
-            errors.append("Den valda tiden är inte längre ledig. Välj en annan tid.")
+        if mode == "tid" and slot not in valid_slots:
+            errors.append("Den valda inlämningstiden är inte längre ledig. Välj en annan tid"
+                          + (" eller inlämning enligt överenskommelse." if allow_agree else "."))
         if not form.get("consent"):
-            errors.append("Du behöver godkänna att vi sparar dina uppgifter för att hantera bokningen.")
+            errors.append("Du behöver godkänna att vi sparar dina uppgifter för att hantera beställningen.")
+
+        # Klardatum och expresstillägg räknas alltid om på servern
+        est = service_estimate(service)
+        drop_day = date.fromisoformat(slot[:10]) if (mode == "tid" and slot in valid_slots) else now().date()
+        ro = ready_options(drop_day, est)
+        chosen = form.get("ready_date") or ro["standard"]
+        opt = next((o for o in ro["options"] if o["date"] == chosen), None)
+        if not opt:
+            if chosen > ro["options"][-1]["date"]:
+                opt = {"date": chosen, "fee": 0}  # senare än fönstret är alltid gratis
+            else:
+                errors.append(f"Det valda klardatumet går inte längre. Tidigast möjliga är {fmt_dt(date.fromisoformat(ro['options'][0]['date']))}.")
+        fee = opt["fee"] if opt else 0
+        if opt and fee > to_float(form.get("fee_ack"), 0) + 0.01:
+            errors.append(f"Expresstillägget för {fmt_dt(date.fromisoformat(chosen))} är nu {fmt_money(fee)} eftersom kön har ändrats. "
+                          f"Kontrollera och skicka igen.")
+            form = request.form.copy()
+            form["fee_ack"] = str(fee)
 
         if not errors:
             db = get_db()
             with db:
-                # Atomisk kontroll av kapacitet inne i transaktionen
-                cnt = db.execute("SELECT COUNT(*) FROM bookings WHERE slot_start=? AND status IN ('ny','bekraftad')",
-                                 (slot,)).fetchone()[0]
+                cnt = 0
+                if mode == "tid":  # atomisk kontroll av inlämningstidens kapacitet
+                    cnt = db.execute("SELECT COUNT(*) FROM bookings WHERE slot_start=? AND status IN ('ny','bekraftad')",
+                                     (slot,)).fetchone()[0]
                 if cnt >= max(1, setting_int("slot_capacity", 1)):
-                    errors.append("Tiden blev precis bokad av någon annan. Välj en annan tid.")
+                    errors.append("Inlämningstiden blev precis tagen av någon annan. Välj en annan tid.")
                 else:
                     cust = db.execute("SELECT id FROM customers WHERE lower(email)=? AND anonymized=0 "
                                       "ORDER BY id DESC LIMIT 1", (email,)).fetchone()
@@ -943,32 +1095,40 @@ def book():
                                          "VALUES (?,?,?,?,?)", (name, email, phone, now_s(), now_s())).lastrowid
                     touch_customer(db, cid)
                     token = secrets.token_urlsafe(24)
-                    auto = s.get("auto_confirm") == "1"
-                    bid = db.execute("INSERT INTO bookings(customer_id, category, item, description, slot_start, token, "
-                                     "created_at, service_id, status) VALUES (?,?,?,?,?,?,?,?,?)",
-                                     (cid, category, item, description, slot, token, now_s(), service_id,
-                                      "bekraftad" if auto else "ny")).lastrowid
+                    auto = s.get("auto_confirm") == "1" and mode == "tid"
+                    bid = db.execute(
+                        "INSERT INTO bookings(customer_id, category, item, description, slot_start, token, created_at, "
+                        "service_id, status, dropoff_mode, desired_ready, standard_ready, express_fee, est_minutes) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (cid, category, item, description, slot if mode == "tid" else "", token, now_s(), service_id,
+                         "bekraftad" if auto else "ny", mode, chosen, ro["standard"], fee, est)).lastrowid
             if not errors:
                 b = q("SELECT * FROM bookings WHERE id=?", (bid,), one=True)
                 status_link = f"{base_url()}{url_for('status', token=token)}"
                 if auto:
                     send_booking_confirmation(b, name, email)
                 else:
-                    mail_customer(email, f"Vi har tagit emot din bokning – {s['business_name']}", "bokning_mottagen",
-                                  heading="Tack för din bokning!",
-                                  paragraphs=[f"Hej {name}! Vi har tagit emot din förfrågan.",
-                                              s.get("response_promise") or "Du får besked när tiden är bekräftad."],
+                    first = ("Vi kontaktar dig för att bestämma när du lämnar in." if mode == "overens"
+                             else s.get("response_promise") or "Du får besked när inlämningstiden är bekräftad.")
+                    mail_customer(email, f"Vi har tagit emot din beställning – {s['business_name']}", "bokning_mottagen",
+                                  heading="Tack för din beställning!",
+                                  paragraphs=[f"Hej {name}! Vi har tagit emot din beställning.", first],
                                   details=booking_details(b, service["name"] if service else None),
-                                  button=("Följ din bokning", status_link))
-                notify_admin(f"Ny bokning {fmt_dt(slot)}: {item}" + (f" · {service['name']}" if service else ""),
-                             f"{name} · {email} {phone}\n{category}: {item}\n{description}"
-                             + ("" if auto else "\n\nVäntar på din bekräftelse."),
+                                  button=("Följ din beställning", status_link))
+                when = fmt_dt(slot) if mode == "tid" else "enligt överenskommelse"
+                notify_admin(f"Ny beställning: {item}" + (f", {service['name']}" if service else ""),
+                             f"{name}, {email} {phone}\n{category}: {item}\n{description}\n\nInlämning: {when}\n"
+                             f"Önskat klart: {fmt_dt(date.fromisoformat(chosen))}"
+                             + (f" (express +{fmt_money(fee)})" if fee else "")
+                             + ("" if auto else "\n\nVäntar på dig: bekräfta eller bestäm inlämningstid."),
                              link=f"{base_url()}/admin")
                 return redirect(url_for("status", token=token, ny=1))
 
     services = active_services()
+    first_drop = date.fromisoformat(slots[0][1][0][:10]) if slots else now().date()
+    ro = ready_options(first_drop, service_estimate(None))
     return render_template("public/book.html", slots=slots, form=form, errors=errors, categories=categories(),
-                           services=services, hours=opening_hours_text())
+                           services=services, hours=opening_hours_text(), ready=ro, allow_agree=allow_agree)
 
 
 def _status_context(token):
@@ -1058,13 +1218,13 @@ def cancel_booking(token):
     x("UPDATE bookings SET status='avbokad' WHERE id=?", (booking["id"],))
     cust = q("SELECT name, email FROM customers WHERE id=?", (booking["customer_id"],), one=True)
     if cust and cust["email"]:
-        mail_customer(cust["email"], f"Avbokning bekräftad – {settings()['business_name']}", "avbokning",
-                      heading="Din tid är avbokad",
-                      paragraphs=[f"Hej {cust['name']}! Vi har tagit bort din tid {fmt_dt(booking['slot_start'])}."],
-                      button=("Boka en ny tid", f"{base_url()}{url_for('book')}"))
+        mail_customer(cust["email"], f"Beställningen är avbruten – {settings()['business_name']}", "avbokning",
+                      heading="Din beställning är avbruten",
+                      paragraphs=[f"Hej {cust['name']}! Vi har tagit bort din beställning av {booking['item']}."],
+                      button=("Gör en ny beställning", f"{base_url()}{url_for('book')}"))
     notify_admin(f"Avbokning {fmt_dt(booking['slot_start'])}", f"{booking['category']} – {booking['item']}",
                  link=f"{base_url()}/admin/bokningar")
-    flash("Din bokning är avbokad.")
+    flash("Din beställning är avbruten.")
     return redirect(url_for("status", token=token))
 
 
@@ -1268,14 +1428,14 @@ def services_admin():
                 return redirect(url_for("services_admin"))
             price = to_float(f.get("price_from")) if clean(f.get("price_from")) else None
             vals = (category, name, clean(f.get("description"), 500), price, 1 if f.get("price_fixed") else 0,
-                    1 if f.get("active") else 0, to_int(f.get("sort"), 100))
+                    1 if f.get("active") else 0, to_int(f.get("sort"), 100), to_int(f.get("est_minutes")) or None)
             if sid:
-                x("UPDATE services SET category=?, name=?, description=?, price_from=?, price_fixed=?, active=?, sort=? "
-                  "WHERE id=?", (*vals, sid))
+                x("UPDATE services SET category=?, name=?, description=?, price_from=?, price_fixed=?, active=?, sort=?, "
+                  "est_minutes=? WHERE id=?", (*vals, sid))
                 flash("Tjänsten är sparad.")
             else:
-                x("INSERT INTO services(category, name, description, price_from, price_fixed, active, sort) "
-                  "VALUES (?,?,?,?,?,?,?)", vals)
+                x("INSERT INTO services(category, name, description, price_from, price_fixed, active, sort, est_minutes) "
+                  "VALUES (?,?,?,?,?,?,?,?)", vals)
                 flash("Tjänsten är tillagd.")
         return redirect(url_for("services_admin"))
     return render_template("admin/services.html", rows=q("SELECT * FROM services ORDER BY active DESC, category, sort, name"),
@@ -1317,14 +1477,33 @@ def booking_status(bid):
         x("UPDATE bookings SET status='avbojd' WHERE id=?", (bid,))
         if b["email"]:
             mail_customer(b["email"], f"Angående din bokning – {s['business_name']}", "bokning_avbojd",
-                          heading="Vi kan tyvärr inte ta emot din bokning",
-                          paragraphs=[f"Hej {b['name']}! Tiden {fmt_dt(b['slot_start'])} fungerar tyvärr inte.",
-                                      reason or "Välj gärna en annan tid som passar dig."],
-                          button=("Välj en annan tid", f"{base_url()}{url_for('book')}"))
+                          heading="Vi kan tyvärr inte ta emot din beställning",
+                          paragraphs=[f"Hej {b['name']}! Vi kan tyvärr inte ta emot beställningen av {b['item']} just nu.",
+                                      reason or "Du är välkommen att beställa igen senare."],
+                          button=("Gör en ny beställning", f"{base_url()}{url_for('book')}"))
         flash("Bokningen är avböjd.")
     elif action == "avboka":
         x("UPDATE bookings SET status='avbokad' WHERE id=?", (bid,))
         flash("Bokningen är avbokad.")
+    return redirect(request.referrer or url_for("bookings_list"))
+
+
+@app.route("/admin/bokningar/<int:bid>/inlamning", methods=["POST"])
+@login_required
+def booking_set_dropoff(bid):
+    """Bestäm inlämningstid för en beställning (t.ex. enligt överenskommelse) och bekräfta den."""
+    b = q("SELECT b.*, c.name, c.email FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id WHERE b.id=?",
+          (bid,), one=True) or abort(404)
+    raw = clean(request.form.get("when"), 16).replace(" ", "T")
+    try:
+        when = datetime.fromisoformat(raw).strftime("%Y-%m-%dT%H:%M")
+    except ValueError:
+        flash("Ange datum och tid för inlämningen.", "error")
+        return redirect(request.referrer or url_for("bookings_list"))
+    x("UPDATE bookings SET slot_start=?, dropoff_mode='tid', status='bekraftad' WHERE id=?", (when, bid))
+    if b["email"]:
+        send_booking_confirmation(q("SELECT * FROM bookings WHERE id=?", (bid,), one=True), b["name"], b["email"])
+    flash(f"Inlämning {fmt_dt(when)} är bekräftad" + (" och kunden har fått mejl." if mail_enabled() and b["email"] else "."))
     return redirect(request.referrer or url_for("bookings_list"))
 
 
@@ -1339,8 +1518,15 @@ def booking_to_wo(bid):
     if svc:
         problem = f"Tjänst: {svc['name']}" + (f"\n{problem}" if problem else "")
     wid = create_work_order(customer_id=b["customer_id"], category=b["category"], item=b["item"],
-                            problem=problem, booking_id=bid, service=svc)
-    x("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
+                            problem=problem, booking_id=bid, service=svc, due_date=b["desired_ready"] or "")
+    db = get_db()
+    with db:
+        db.execute("UPDATE work_orders SET est_minutes=? WHERE id=?", (b["est_minutes"] or service_estimate(svc), wid))
+        if b["express_fee"]:
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
+                       "VALUES (?,?,?,?,?,?)", (wid, None, f"Expresstillägg, klart senast {fmt_dt(date.fromisoformat(b['desired_ready']))}",
+                                                1, b["express_fee"], now_s()))
+        db.execute("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
     return after_intake(wid)
 
 
@@ -1434,6 +1620,7 @@ def wo_new():
         wid = create_work_order(cid, category, clean(f.get("item"), 200), problem,
                                 serial=clean(f.get("serial"), 100), accessories=clean(f.get("accessories"), 500),
                                 due_date=clean(f.get("due_date"), 10), service=svc)
+        x("UPDATE work_orders SET est_minutes=? WHERE id=?", (service_estimate(svc), wid))
         return after_intake(wid)
     customers = q("SELECT id, name, phone FROM customers WHERE anonymized=0 ORDER BY name")
     return render_template("admin/wo_new.html", customers=customers, categories=categories(),
@@ -2151,6 +2338,8 @@ SETTINGS_SECTIONS = {
     "verkstad": ["business_name", "tagline", "address", "contact_email", "contact_phone", "public_url",
                  "labor_rate", "categories", "accent_color", "retention_months", "print_on_intake", "intake_terms"],
     "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "booking_intro", "response_promise",
+                "capacity_hours_week", "default_est_minutes", "express_fee_per_day", "min_lead_days",
+                "ready_days_window", "allow_by_agreement",
                 "open_days", "open_from", "open_to", "slot_minutes", "slot_capacity", "days_ahead",
                 "min_notice_hours", "blocked_dates"],
     "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
@@ -2158,6 +2347,7 @@ SETTINGS_SECTIONS = {
     "etikett": ["label_printer_url", "label_printer_token", "label_size", "label_on_intake", "label_customer_on_intake"],
 }
 CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake", "label_on_intake",
+                     "allow_by_agreement",
                      "label_customer_on_intake"}
 
 
