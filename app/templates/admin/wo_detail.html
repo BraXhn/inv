@@ -9,7 +9,7 @@
     <div class="sub">{{ wo.customer_name }} · inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
   </div>
   <div class="actions">
-    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id) }}">{{ icon('printer') }} Kvitto</a>
+    <a class="btn ghost small" href="{{ url_for('wo_intake_print', wid=wo.id) }}">{{ icon('printer') }} Mottagningssedel & lapp</a>
     <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id, typ='faktura') }}">{{ icon('list') }} Specifikation</a>
   </div>
 </div>
@@ -33,6 +33,7 @@
   </form>
   {% endif %}
   <div class="grow"></div>
+  {% if wo.status == 'klar' and wo.pickup_code %}<span class="pill klar" title="Jämför med kundens mottagningssedel">Hämtkod {{ wo.pickup_code }}</span>{% endif %}
   <details>
     <summary class="small muted">Annan status / meddelande</summary>
     <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}" class="mt">

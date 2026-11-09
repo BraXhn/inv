@@ -23,7 +23,7 @@ from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -101,6 +101,8 @@ DEFAULT_SETTINGS = {
     "accent_color": "#1f6f5c",
     "response_promise": "Vi bekräftar din tid inom ett dygn.",
     "tagline": "Cykelservice och elektronikreparationer",
+    "print_on_intake": "1",
+    "intake_terms": "Objektet förvaras på kundens risk utöver normal aktsamhet. Vi kontaktar dig med offert innan arbete utöver avtalat uppdrag utförs. Ej hämtade objekt förvaras i 3 månader efter att de meddelats klara.",
     "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
     "reminder_enabled": "1",
     "smtp_host": "",
@@ -273,7 +275,13 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("work_orders", "timer_started_at", "TEXT"),
     ("work_orders", "service_id", "INTEGER"),
     ("bookings", "reminder_sent_at", "TEXT"),
+    ("work_orders", "pickup_code", "TEXT"),
 ]
+
+
+def new_pickup_code():
+    """Fyrsiffrig kod på mottagningssedeln som kunden visar vid hämtning."""
+    return f"{secrets.randbelow(9000) + 1000}"
 
 
 def init_db():
@@ -294,6 +302,8 @@ def init_db():
         conn.execute("INSERT INTO settings(key, value) VALUES ('services_seeded', '1')")
     if os.environ.get("PUBLIC_URL"):  # miljövariabeln vinner, så att Unraid-mallen styr
         conn.execute("UPDATE settings SET value=? WHERE key='public_url'", (os.environ["PUBLIC_URL"].rstrip("/"),))
+    for row in conn.execute("SELECT id FROM work_orders WHERE pickup_code IS NULL").fetchall():
+        conn.execute("UPDATE work_orders SET pickup_code=? WHERE id=?", (new_pickup_code(), row["id"]))
     if not conn.execute("SELECT value FROM settings WHERE key='api_key'").fetchone()[0]:
         conn.execute("UPDATE settings SET value=? WHERE key='api_key'", (secrets.token_urlsafe(32),))
     if not conn.execute("SELECT value FROM settings WHERE key='calendar_token'").fetchone()[0]:
@@ -1278,8 +1288,7 @@ def booking_to_wo(bid):
     wid = create_work_order(customer_id=b["customer_id"], category=b["category"], item=b["item"],
                             problem=problem, booking_id=bid, service=svc)
     x("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
-    flash("Arbetsorder skapad från bokningen. Kunden ser nu status via samma länk.")
-    return redirect(url_for("wo_detail", wid=wid))
+    return after_intake(wid)
 
 
 # ---------------------------------------------------------------------------
@@ -1294,11 +1303,11 @@ def create_work_order(customer_id, category, item, problem, booking_id=None, ser
                 number = next_wo_number(db)
                 wid = db.execute(
                     "INSERT INTO work_orders(number, customer_id, booking_id, category, item, serial, accessories, "
-                    "problem, status, labor_rate, tag_code, token, due_date, created_at, updated_at, service_id) "
-                    "VALUES (?,?,?,?,?,?,?,?, 'inlamnad', ?,?,?,?,?,?,?)",
+                    "problem, status, labor_rate, tag_code, token, due_date, created_at, updated_at, service_id, pickup_code) "
+                    "VALUES (?,?,?,?,?,?,?,?, 'inlamnad', ?,?,?,?,?,?,?,?)",
                     (number, customer_id, booking_id, category, item, serial, accessories, problem,
                      to_float(settings()["labor_rate"]), new_tag(), secrets.token_urlsafe(24),
-                     due_date or None, now_s(), now_s(), service["id"] if service else None)).lastrowid
+                     due_date or None, now_s(), now_s(), service["id"] if service else None, new_pickup_code())).lastrowid
                 db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
                            (wid, now_s(), "Inlämnad och registrerad."))
                 if service and service["price_fixed"] and service["price_from"] is not None:
@@ -1372,7 +1381,7 @@ def wo_new():
         wid = create_work_order(cid, category, clean(f.get("item"), 200), problem,
                                 serial=clean(f.get("serial"), 100), accessories=clean(f.get("accessories"), 500),
                                 due_date=clean(f.get("due_date"), 10), service=svc)
-        return redirect(url_for("wo_detail", wid=wid))
+        return after_intake(wid)
     customers = q("SELECT id, name, phone FROM customers WHERE anonymized=0 ORDER BY name")
     return render_template("admin/wo_new.html", customers=customers, categories=categories(),
                            preselect=to_int(request.args.get("kund")), services=active_services())
@@ -1621,6 +1630,36 @@ def wo_remove_line(wid, lid):
                        (line["part_id"], line["qty"], f"Återförd från {wo['number']}", wid, now_s()))
     flash("Raden är borttagen" + (" och delen återförd till lagret." if line["part_id"] else "."))
     return redirect(url_for("wo_detail", wid=wid) + "#rader")
+
+
+def after_intake(wid):
+    """Efter mottagning: mejla kunden en kopia av mottagningssedeln och gå till utskriften."""
+    wo = _load_wo(wid)
+    if wo["customer_email"]:
+        s = settings()
+        mail_customer(wo["customer_email"], f"Vi har tagit emot {wo['item']} – {wo['number']}", "mottagen",
+                      heading="Vi har tagit emot ditt ärende",
+                      paragraphs=[f"Hej {wo['customer_name']}! Tack, {wo['item']} är inlämnad och registrerad.",
+                                  "Visa mottagningssedeln eller hämtkoden nedan när du hämtar."],
+                      details=[("Ärende", wo["number"]), ("Hämtkod", wo["pickup_code"] or ""),
+                               ("Inlämnad", fmt_dt(wo["created_at"])), ("Medlämnat", wo["accessories"] or "–")],
+                      button=("Följ ärendet", f"{base_url()}{url_for('status', token=wo['token'])}"),
+                      note=s.get("intake_terms", ""))
+    if settings().get("print_on_intake") == "1":
+        return redirect(url_for("wo_intake_print", wid=wid, auto=1))
+    flash(f"{wo['number']} är mottagen.")
+    return redirect(url_for("wo_detail", wid=wid))
+
+
+@app.route("/admin/ao/<int:wid>/mottagning")
+@login_required
+def wo_intake_print(wid):
+    wo = _load_wo(wid)
+    fmt = request.args.get("format", "a4")
+    return render_template("admin/intake_print.html", wo=wo, fmt=fmt if fmt in ("a4", "etikett", "kund") else "a4",
+                           auto=request.args.get("auto") == "1",
+                           status_url=f"{base_url()}{url_for('status', token=wo['token'])}",
+                           obj_url=tag_url(wo["tag_code"]))
 
 
 @app.route("/admin/ao/<int:wid>/kvitto")
@@ -1966,14 +2005,14 @@ def settings_page():
 
 SETTINGS_SECTIONS = {
     "verkstad": ["business_name", "tagline", "address", "contact_email", "contact_phone", "public_url",
-                 "labor_rate", "categories", "accent_color", "retention_months"],
+                 "labor_rate", "categories", "accent_color", "retention_months", "print_on_intake", "intake_terms"],
     "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "booking_intro", "response_promise",
                 "open_days", "open_from", "open_to", "slot_minutes", "slot_capacity", "days_ahead",
                 "min_notice_hours", "blocked_dates"],
     "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
     "api": ["api_cors_origin"],
 }
-CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled"}
+CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake"}
 
 
 @app.route("/admin/epost/test", methods=["POST"])

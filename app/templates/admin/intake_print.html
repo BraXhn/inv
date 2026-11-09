@@ -1,0 +1,72 @@
+{% extends "admin/_shell.html" %}
+{% block title %}{{ wo.number }} – mottagning{% endblock %}
+{% block head %}{{ super() }}<link rel="stylesheet" href="{{ url_for('static', filename='print-label.css' if fmt == 'etikett' else 'print-a4.css') }}?v={{ VERSION }}">{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <div><h1>{{ wo.number }} är mottagen</h1><div class="sub">Skriv ut, ge kunden sedeln och fäst lappen på {{ wo.item }}.</div></div>
+  <div class="actions">
+    <button data-print>{{ icon('printer') }} Skriv ut</button>
+    <a class="btn ghost" href="{{ url_for('wo_detail', wid=wo.id) }}">Till ärendet {{ icon('arrow') }}</a>
+  </div>
+</div>
+<div class="card no-print row">
+  <span class="small muted">Utskrift:</span>
+  <a class="btn small {{ '' if fmt == 'a4' else 'ghost' }}" href="{{ url_for('wo_intake_print', wid=wo.id) }}">A4: sedel + objektlapp</a>
+  <a class="btn small {{ '' if fmt == 'kund' else 'ghost' }}" href="{{ url_for('wo_intake_print', wid=wo.id, format='kund') }}">Bara kundens sedel</a>
+  <a class="btn small {{ '' if fmt == 'etikett' else 'ghost' }}" href="{{ url_for('wo_intake_print', wid=wo.id, format='etikett') }}">Bara objektlapp (etikett 62 mm)</a>
+</div>
+{% if auto %}<div data-autoprint hidden></div>{% endif %}
+
+<div class="sheet sheet-{{ fmt }}">
+  {% if fmt in ('a4', 'kund') %}
+  <section class="ticket">
+    <header class="t-head">
+      <div>
+        <div class="t-brand">{{ S.business_name }}</div>
+        <div class="t-small">{{ S.address }}{% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}{% if S.contact_email %} · {{ S.contact_email }}{% endif %}</div>
+      </div>
+      <div class="t-title">Mottagningssedel</div>
+    </header>
+
+    <div class="t-main">
+      <div class="t-ids">
+        <div class="t-label">Ärendenummer</div>
+        <div class="t-number">{{ wo.number }}</div>
+        <div class="t-codebox"><div class="t-label">Hämtkod</div><div class="t-code">{{ wo.pickup_code }}</div></div>
+        <div class="t-small">Inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · beräknas klar {{ wo.due_date|d }}{% endif %}</div>
+      </div>
+      <div class="t-qr">{{ qr_svg(status_url) }}<div class="t-small">Skanna för att följa ärendet</div></div>
+    </div>
+
+    <table class="t-table">
+      <tr><th>Kund</th><td>{{ wo.customer_name }}{% if wo.customer_phone %} · {{ wo.customer_phone }}{% endif %}</td></tr>
+      <tr><th>Objekt</th><td>{{ wo.category }}: <b>{{ wo.item }}</b></td></tr>
+      <tr><th>Ram-/serienr</th><td>{{ wo.serial or '–' }}</td></tr>
+      <tr><th>Medlämnat</th><td>{{ wo.accessories or 'Inget' }}</td></tr>
+      <tr><th>Uppdrag</th><td>{{ wo.problem or '–' }}</td></tr>
+    </table>
+
+    <p class="t-notice"><b>Ta med den här sedeln när du hämtar</b>, eller visa hämtkoden {{ wo.pickup_code }}. Vi lämnar bara ut mot sedel, kod eller legitimation.</p>
+    <p class="t-small">{{ S.intake_terms }}{% if wo.category == 'Elektronik' %} Data på lagringsmedier kan gå förlorad vid reparation – säkerhetskopiera före inlämning.{% endif %}</p>
+    <div class="sign"><div>Kundens underskrift</div><div>Mottaget av</div></div>
+  </section>
+  {% endif %}
+
+  {% if fmt == 'a4' %}<div class="cut">✂ &nbsp;Klipp här – lappen nedan fästs på objektet</div>{% endif %}
+
+  {% if fmt in ('a4', 'etikett') %}
+  <section class="objtag">
+    <div class="o-hole" aria-hidden="true"></div>
+    <div class="o-body">
+      <div class="o-number">{{ wo.number }}</div>
+      <div class="o-item">{{ wo.item }}</div>
+      <div class="o-meta">{{ wo.customer_name }}{% if wo.customer_phone %} · tel …{{ wo.customer_phone[-4:] }}{% endif %}</div>
+      <div class="o-meta">{{ wo.category }} · inl. {{ wo.created_at[:10] }}{% if wo.serial %} · {{ wo.serial }}{% endif %}</div>
+      {% if wo.accessories %}<div class="o-meta">Medlämnat: {{ wo.accessories }}</div>{% endif %}
+      <div class="o-code">{{ wo.tag_code }}</div>
+    </div>
+    <div class="o-qr">{{ qr_svg(obj_url) }}<div>Skanna / NFC</div></div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

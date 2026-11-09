@@ -95,7 +95,7 @@ def test_everything():
     # Konvertera till arbetsorder
     r = adm.post(f"/admin/bokningar/{bid}/arbetsorder", data={"_csrf": tok})
     assert r.status_code == 302
-    wid = int(r.headers["Location"].rstrip("/").split("/")[-1])
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
     html = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
     assert "AO-" in html and "Ramnummer noterat" in html  # cykelchecklista
     assert "verkstad.example.se/t/" in html  # tagg-URL använder publik adress
@@ -192,7 +192,7 @@ def test_everything():
     tok = csrf(adm, "/admin/ao/ny")
     r = adm.post("/admin/ao/ny", data={"_csrf": tok, "new_name": "Bertil", "new_phone": "070", "category": "Elektronik",
                                        "item": "Marantz PM6006", "problem": "Brum i vänster kanal"})
-    wid2 = int(r.headers["Location"].split("/")[-1])
+    wid2 = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
     html = adm.get(f"/admin/ao/{wid2}").get_data(as_text=True)
     assert "Serienummer noterat" in html and "AO-" in html
 
@@ -265,10 +265,26 @@ def test_v2():
 
     # Ta emot → arbetsorder med fast pris som rad
     bid = verkstad.connect().execute("SELECT id FROM bookings WHERE item='Crescent'").fetchone()[0]
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "verkstad", "print_on_intake": "1"})
     r = adm.post(f"/admin/bokningar/{bid}/arbetsorder", data={"_csrf": tok})
-    wid = int(r.headers["Location"].split("/")[-1])
+    assert "/mottagning?auto=1" in r.headers["Location"], r.headers["Location"]
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
     line = verkstad.connect().execute("SELECT description, unit_price FROM wo_lines WHERE work_order_id=?", (wid,)).fetchone()
     assert line[0] == "Punktering fast" and line[1] == 199
+
+    # Mottagningssedel + objektlapp, hämtkod och mejl till kunden
+    code = verkstad.connect().execute("SELECT pickup_code FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
+    assert code and len(code) == 4 and code.isdigit()
+    page = adm.get(f"/admin/ao/{wid}/mottagning?auto=1").get_data(as_text=True)
+    assert "Mottagningssedel" in page and code in page and "data-autoprint" in page and "Klipp här" in page
+    assert "Crescent" in page and "print-a4.css" in page
+    lab = adm.get(f"/admin/ao/{wid}/mottagning?format=etikett").get_data(as_text=True)
+    assert "print-label.css" in lab and "Mottagningssedel</div>" not in lab and "o-number" in lab
+    kund = adm.get(f"/admin/ao/{wid}/mottagning?format=kund").get_data(as_text=True)
+    assert "objtag" not in kund
+    _t.sleep(0.3)
+    mott = [m for m in sent if "Vi har tagit emot" in m["Subject"]]
+    assert mott and code in mott[-1].get_body(("plain",)).get_content()
 
     # Ny del direkt från arbetsordern: köp 4, använd 1 -> 3 i lager, rad på ärendet
     r = adm.post(f"/admin/ao/{wid}/ny-del", data={"_csrf": tok, "name": "Slang 28x1.5", "sku": "SL28", "qty": "1",

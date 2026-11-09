@@ -30,6 +30,8 @@
     <label>Publik adress</label><input type="url" name="public_url" value="{{ S.public_url }}" placeholder="https://verkstad.dindoman.se">
     <p class="help">Används i NFC-taggar, QR-koder och e-post. Om PUBLIC_URL är satt i Unraid vinner den vid omstart.</p>
     <label>Kategorier (kommaseparerade)</label><input type="text" name="categories" value="{{ S.categories }}">
+    <label class="check mt"><input type="checkbox" name="print_on_intake" value="1" {{ 'checked' if S.print_on_intake == '1' }}> <span><b>Skriv ut mottagningssedel och objektlapp</b> direkt när ett ärende tas emot</span></label>
+    <label>Villkor på mottagningssedeln</label><textarea name="intake_terms" maxlength="1500">{{ S.intake_terms }}</textarea>
     <p class="mt mb0"><button>Spara</button></p>
   </form>
 

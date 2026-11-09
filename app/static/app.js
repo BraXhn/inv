@@ -71,6 +71,9 @@
   }
   if (document.querySelector('[data-since]')) { tick(); setInterval(tick, 1000); }
 
+  // Mottagningen: öppna utskriften direkt
+  if (document.querySelector('[data-autoprint]')) { setTimeout(function () { window.print(); }, 500); }
+
   // ---------- Bokningsformuläret ----------
   var form = document.getElementById('booking');
   if (!form) { return; }

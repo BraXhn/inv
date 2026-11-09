@@ -1,0 +1,2 @@
+/* Etikettskrivare, t.ex. Brother QL med 62 mm löpande rulle */
+@media print { @page { size: 62mm 100mm; margin: 2mm; } .sheet-etikett { max-width: none; } }

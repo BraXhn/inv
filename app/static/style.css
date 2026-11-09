@@ -350,3 +350,42 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .newpart { margin: 1rem 0; border: 1px dashed var(--line-2); border-radius: var(--radius-sm); padding: .6rem .9rem; background: var(--surface-2); }
 .newpart summary { cursor: pointer; font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: .4rem; }
 .newpart[open] summary { margin-bottom: .25rem; }
+
+/* ======================= Mottagningssedel och objektlapp ======================= */
+.sheet { background: #fff; color: #111; max-width: 190mm; margin: 0 auto; padding: 10mm; border-radius: 8px; box-shadow: var(--shadow-lg); font-size: 10.5pt; line-height: 1.4; }
+.sheet b { color: #000; }
+.ticket { }
+.t-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 6mm; border-bottom: 2px solid #111; padding-bottom: 3mm; }
+.t-brand { font-size: 15pt; font-weight: 800; letter-spacing: -.01em; }
+.t-title { font-size: 13pt; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.t-small { font-size: 8.5pt; color: #444; }
+.t-label { font-size: 8pt; text-transform: uppercase; letter-spacing: .08em; color: #555; font-weight: 700; }
+.t-main { display: flex; justify-content: space-between; gap: 8mm; margin: 5mm 0 4mm; align-items: center; }
+.t-number { font: 800 26pt/1.1 var(--mono); letter-spacing: -.02em; margin-bottom: 3mm; }
+.t-codebox { display: inline-block; border: 2px solid #111; border-radius: 3mm; padding: 1.5mm 4mm 2mm; margin-bottom: 2mm; }
+.t-code { font: 800 22pt/1.1 var(--mono); letter-spacing: .25em; }
+.t-qr { text-align: center; flex: none; }
+.t-qr svg { width: 32mm; height: 32mm; display: block; margin: 0 auto 1mm; }
+.t-table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-variant-numeric: normal; }
+.t-table th, .t-table td { border: 0; border-top: 1px solid #ddd; padding: 2mm 1mm; color: #111; text-transform: none; letter-spacing: 0; font-size: 10pt; }
+.t-table th { width: 32mm; color: #555; font-weight: 600; }
+.t-notice { background: #f3f3f0; border-left: 3px solid #111; padding: 3mm 4mm; margin: 0 0 3mm; }
+.cut { border-top: 1.5px dashed #888; margin: 8mm -10mm 6mm; padding-top: 1.5mm; text-align: center; font-size: 8pt; color: #666; }
+.objtag { display: flex; align-items: center; gap: 5mm; border: 2px solid #111; border-radius: 4mm; padding: 4mm 5mm; max-width: 120mm; margin: 0 auto; position: relative; }
+.o-hole { width: 6mm; height: 6mm; border-radius: 50%; border: 1.5px solid #111; flex: none; }
+.o-body { flex: 1; min-width: 0; }
+.o-number { font: 800 20pt/1.1 var(--mono); letter-spacing: -.02em; }
+.o-item { font-size: 12pt; font-weight: 700; margin: 1mm 0; }
+.o-meta { font-size: 8.5pt; color: #333; }
+.o-code { font: 600 8pt var(--mono); color: #555; margin-top: 1.5mm; letter-spacing: .1em; }
+.o-qr { text-align: center; font-size: 7pt; color: #555; flex: none; }
+.o-qr svg { width: 26mm; height: 26mm; display: block; }
+.sheet-etikett { max-width: 70mm; padding: 4mm; }
+.sheet-etikett .objtag { flex-direction: column; text-align: center; max-width: none; gap: 2mm; padding: 3mm; }
+.sheet-etikett .o-hole { position: absolute; top: 2mm; left: 2mm; width: 4mm; height: 4mm; }
+.sheet-etikett .o-qr svg { width: 30mm; height: 30mm; margin: 0 auto; }
+.sheet-etikett .o-number { font-size: 16pt; }
+@media print {
+  .sheet { box-shadow: none; padding: 0; max-width: none; border-radius: 0; }
+  .cut { margin-left: 0; margin-right: 0; }
+}
