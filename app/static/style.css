@@ -347,3 +347,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .js .days.js-only { display: flex; }
 .tile label .desc { display: block; margin-top: .15rem; }
 .tile label .txt { font-weight: 600; }
+.newpart { margin: 1rem 0; border: 1px dashed var(--line-2); border-radius: var(--radius-sm); padding: .6rem .9rem; background: var(--surface-2); }
+.newpart summary { cursor: pointer; font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: .4rem; }
+.newpart[open] summary { margin-bottom: .25rem; }

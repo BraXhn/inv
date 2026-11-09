@@ -117,6 +117,31 @@
       <div><label>&nbsp;</label><button>Lägg till och dra från lager</button></div>
     </form>
 
+    <details class="newpart" {{ 'open' if not parts }}>
+      <summary>{{ icon('plus') }} Finns inte i listan? Lägg till ny del i lagret</summary>
+      <form method="post" action="{{ url_for('wo_new_part', wid=wo.id) }}">
+        {{ csrf() }}
+        <div class="fields">
+          <div><label>Namn</label><input type="text" name="name" maxlength="200" required placeholder="t.ex. Bromsbelägg Shimano J04C"></div>
+          <div><label>Artikelnummer</label><input type="text" name="sku" maxlength="60"></div>
+          <div><label>Kategori</label><input type="text" name="category" list="wo-part-cats" maxlength="60" placeholder="{{ wo.category }}">
+            <datalist id="wo-part-cats">{% for c in part_cats %}<option value="{{ c }}">{% endfor %}</datalist></div>
+          <div><label>Plats</label><select name="location_id"><option value="">–</option>{% for l in locations %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="fields">
+          <div><label>Används i ärendet</label><input type="number" name="qty" value="1" min="0.01" step="any" required></div>
+          <div><label>Köpt / i lager totalt</label><input type="number" name="stock" min="0" step="any" placeholder="samma som används"></div>
+          <div><label>Enhet</label><input type="text" name="unit" value="st" maxlength="10"></div>
+          <div><label>Beställningspunkt</label><input type="number" name="min_qty" value="0" min="0" step="any"></div>
+          <div><label>Inköpspris</label><input type="number" name="unit_cost" min="0" step="any"></div>
+          <div><label>Pris till kund</label><input type="number" name="unit_price" min="0" step="any" required></div>
+          <div><label>Leverantör</label><input type="text" name="supplier" maxlength="120"></div>
+        </div>
+        <p class="help">Köper du t.ex. 4 par och använder 1 hamnar 3 i lagret och delen får egen NFC/QR-tagg.</p>
+        <button>{{ icon('plus') }} Skapa del och lägg på ärendet</button>
+      </form>
+    </details>
+
     <h3>Fri rad (köpt för ärendet, ej lagerförd)</h3>
     <form method="post" action="{{ url_for('wo_add_line', wid=wo.id) }}" class="fields">
       {{ csrf() }}
@@ -149,7 +174,7 @@
     {% if wo.customer_phone %}<a href="tel:{{ wo.customer_phone }}">{{ wo.customer_phone }}</a>{% endif %}</p>
     <h3>Kundens statuslänk</h3>
     <p class="taglink mono">{{ status_url }}</p>
-    <button class="ghost small" data-copy="{{ status_url }}">Kopiera</button>
+    <button type="button" class="ghost small" data-copy="{{ status_url }}">Kopiera</button>
   </div>
   {{ tagbox(wo.tag_code, 'Tagg för objektet') }}
 </div>

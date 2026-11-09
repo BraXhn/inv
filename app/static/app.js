@@ -11,11 +11,13 @@
     var c = e.target.closest('[data-confirm]');
     if (c && !window.confirm(c.getAttribute('data-confirm'))) { e.preventDefault(); e.stopPropagation(); }
     var cp = e.target.closest('[data-copy]');
-    if (cp && navigator.clipboard) {
+    if (cp) {
       e.preventDefault();
-      navigator.clipboard.writeText(cp.getAttribute('data-copy')).then(function () {
-        var old = cp.innerHTML; cp.textContent = 'Kopierat!';
-        setTimeout(function () { cp.innerHTML = old; }, 1500);
+      copyText(cp.getAttribute('data-copy')).then(function (ok) {
+        if (!ok) { window.prompt('Kopiera länken:', cp.getAttribute('data-copy')); return; }
+        if (cp.dataset.busy) { return; }
+        var old = cp.innerHTML; cp.dataset.busy = '1'; cp.textContent = 'Kopierat!';
+        setTimeout(function () { cp.innerHTML = old; delete cp.dataset.busy; }, 1500);
       });
     }
   });
@@ -27,6 +29,27 @@
     }
     if (e.target.matches('[data-autosubmit]')) { e.target.form.submit(); }
   });
+
+  // Kopiera text. Clipboard-API:t finns bara över https/localhost; på hemmanätet (http://ip:8080)
+  // används en dold textruta och execCommand, som fungerar i alla webbläsare.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacyCopy(text); });
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '-9999px'; ta.style.fontSize = '16px';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
 
   // ---------- Snabbtangent: / fokuserar sökningen ----------
   var search = document.getElementById('global-search');

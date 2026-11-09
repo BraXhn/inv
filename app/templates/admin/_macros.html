@@ -4,7 +4,7 @@
   <h2>{{ title }}</h2>
   {{ qr_svg(url) }}
   <p class="taglink mono">{{ url }}</p>
-  <p class="row center"><button class="ghost small" data-copy="{{ url }}">Kopiera länk</button></p>
+  <p class="row center"><button type="button" class="ghost small" data-copy="{{ url }}">Kopiera länk</button></p>
   <p class="small muted">Skriv länken till en NFC-tagg med appen NFC Tools (”Lägg till post → URL”), eller skriv ut QR-koden. Taggen öppnar den här sidan efter inloggning.</p>
 </div>
 {% endmacro %}

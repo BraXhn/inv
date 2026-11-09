@@ -270,6 +270,28 @@ def test_v2():
     line = verkstad.connect().execute("SELECT description, unit_price FROM wo_lines WHERE work_order_id=?", (wid,)).fetchone()
     assert line[0] == "Punktering fast" and line[1] == 199
 
+    # Ny del direkt från arbetsordern: köp 4, använd 1 -> 3 i lager, rad på ärendet
+    r = adm.post(f"/admin/ao/{wid}/ny-del", data={"_csrf": tok, "name": "Slang 28x1.5", "sku": "SL28", "qty": "1",
+                                                 "stock": "4", "unit_price": "129", "unit_cost": "45"})
+    assert r.status_code == 302
+    c = verkstad.connect()
+    part = c.execute("SELECT id, qty, tag_code FROM parts WHERE sku='SL28'").fetchone()
+    assert part[1] == 3 and part[2]
+    assert tuple(c.execute("SELECT qty, unit_price FROM wo_lines WHERE part_id=? AND work_order_id=?", (part[0], wid)).fetchone()) == (1, 129)
+    assert sum(r[0] for r in c.execute("SELECT delta FROM stock_moves WHERE part_id=?", (part[0],))) == 3
+    adm.post(f"/admin/ao/{wid}/ny-del", data={"_csrf": tok, "name": "Dubblett", "sku": "SL28", "qty": "1", "unit_price": "1"})
+    assert verkstad.connect().execute("SELECT COUNT(*) FROM parts WHERE sku='SL28'").fetchone()[0] == 1
+    # Utan lagersaldo: lager = använt -> 0 kvar
+    adm.post(f"/admin/ao/{wid}/ny-del", data={"_csrf": tok, "name": "Ventilkåpa", "qty": "2", "unit_price": "10"})
+    assert verkstad.connect().execute("SELECT qty FROM parts WHERE name='Ventilkåpa'").fetchone()[0] == 0
+    # Ta bort raden -> delen återförs till lagret
+    lid = verkstad.connect().execute("SELECT id FROM wo_lines WHERE description='Ventilkåpa'").fetchone()[0]
+    adm.post(f"/admin/ao/{wid}/rad/{lid}/ta-bort", data={"_csrf": tok})
+    assert verkstad.connect().execute("SELECT qty FROM parts WHERE name='Ventilkåpa'").fetchone()[0] == 2
+    # Fast pris-raden + Slang ska finnas kvar; ta bort Slang igen så summan i senare test stämmer
+    lid = verkstad.connect().execute("SELECT id FROM wo_lines WHERE description='Slang 28x1.5'").fetchone()[0]
+    adm.post(f"/admin/ao/{wid}/rad/{lid}/ta-bort", data={"_csrf": tok})
+
     # Timer start/stopp
     adm.post(f"/admin/ao/{wid}/timer", data={"_csrf": tok})
     c = verkstad.connect()

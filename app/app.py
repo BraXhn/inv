@@ -23,7 +23,7 @@ from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -1411,7 +1411,8 @@ def wo_detail(wid):
         checked = set(json.loads(wo["checklist"] or "[]"))
     except ValueError:
         checked = set()
-    return render_template("admin/wo_detail.html", wo=wo, lines=lines, events=events, parts=parts,
+    part_cats = [r["category"] for r in q("SELECT DISTINCT category FROM parts WHERE category IS NOT NULL AND category<>'' ORDER BY 1")]
+    return render_template("admin/wo_detail.html", wo=wo, lines=lines, events=events, parts=parts, part_cats=part_cats,
                            totals=wo_totals(wo, lines), locations=q("SELECT * FROM locations ORDER BY name"),
                            categories=categories(), checklist=INTAKE_CHECKLISTS.get(wo["category"], []),
                            checked=checked, mail=mail_enabled(), next_steps=WO_NEXT.get(wo["status"], []),
@@ -1565,6 +1566,44 @@ def wo_add_line(wid):
             db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
                        "VALUES (?,?,?,?,?,?)", (wid, None, desc, qty, to_float(f.get("unit_price")), now_s()))
         db.execute("UPDATE work_orders SET updated_at=? WHERE id=?", (now_s(), wid))
+    return redirect(url_for("wo_detail", wid=wid) + "#rader")
+
+
+@app.route("/admin/ao/<int:wid>/ny-del", methods=["POST"])
+@login_required
+def wo_new_part(wid):
+    """Skapar en lagerdel som inte fanns och lägger den direkt på arbetsordern (drar från lagret)."""
+    wo = _load_wo(wid)
+    f = request.form
+    name = clean(f.get("name"), 200)
+    used = to_float(f.get("qty"), 1)
+    stock = to_float(f.get("stock"), used) if clean(f.get("stock")) else used
+    if not name or used <= 0:
+        flash("Ange namn och antal för den nya delen.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#rader")
+    if stock < used:
+        stock = used
+    db = get_db()
+    try:
+        with db:
+            pid = db.execute("INSERT INTO parts(sku, name, category, location_id, qty, min_qty, unit, unit_cost, unit_price, "
+                             "supplier, tag_code, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (clean(f.get("sku"), 60) or None, name, clean(f.get("category"), 60),
+                              to_int(f.get("location_id")) or None, stock - used, to_float(f.get("min_qty")),
+                              clean(f.get("unit"), 10) or "st", to_float(f.get("unit_cost")), to_float(f.get("unit_price")),
+                              clean(f.get("supplier"), 120), new_tag(), now_s())).lastrowid
+            db.execute("INSERT INTO stock_moves(part_id, delta, reason, created_at) VALUES (?,?,?,?)",
+                       (pid, stock, f"Ny del (skapad från {wo['number']})", now_s()))
+            db.execute("INSERT INTO stock_moves(part_id, delta, reason, work_order_id, created_at) VALUES (?,?,?,?,?)",
+                       (pid, -used, f"Används i {wo['number']}", wid, now_s()))
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
+                       "VALUES (?,?,?,?,?,?)", (wid, pid, name, used, to_float(f.get("unit_price")), now_s()))
+            db.execute("UPDATE work_orders SET updated_at=? WHERE id=?", (now_s(), wid))
+    except sqlite3.IntegrityError:
+        flash("Artikelnumret finns redan i lagret. Välj delen i listan istället.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#rader")
+    left = stock - used
+    flash(f"{name} är tillagd i lagret och på ärendet" + (f" – {fmt_qty(left)} kvar i lager." if left else "."))
     return redirect(url_for("wo_detail", wid=wid) + "#rader")
 
 
