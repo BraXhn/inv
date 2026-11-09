@@ -1,0 +1,16 @@
+{% extends "public/_layout.html" %}
+{% block title %}Följ ditt ärende – {{ S.business_name }}{% endblock %}
+{% block content %}
+<div class="pub-narrow">
+  <div class="page-title"><h1>Följ ditt ärende</h1><p>Skriv ärendenumret och hämtkoden. Båda står på mottagningssedeln och i mejlet du fick vid inlämningen.</p></div>
+  <form method="post" class="step">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {% if error %}<div class="errors" role="alert">{{ error }}</div>{% endif %}
+    <div class="fields">
+      <div><label for="number">Ärendenummer</label><input id="number" type="text" name="number" value="{{ number }}" placeholder="AO-2026-0001" autocomplete="off" autocapitalize="characters" required></div>
+      <div><label for="code">Hämtkod</label><input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="4 siffror" autocomplete="off" required></div>
+    </div>
+    <p class="mt mb0"><button class="lg">Visa ärendet</button></p>
+  </form>
+</div>
+{% endblock %}

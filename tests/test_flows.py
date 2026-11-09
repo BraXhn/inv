@@ -347,6 +347,19 @@ def test_v2():
     _t.sleep(0.4)
     assert any("Påminnelse" in m["Subject"] for m in sent)
 
+    # Startsidan och ärendeuppslag med nummer + hämtkod
+    home = pub.get("/").get_data(as_text=True)
+    assert "Tjänster och priser" in home and "Punktering fast" in home and "Boka tid" in home
+    assert "Nästa lediga tid" in home
+    tid = re.search(r'/boka\?tid=([0-9T:%A-F-]+)"', home)
+    assert tid, "Förvald tid saknas"
+    num, code = verkstad.connect().execute("SELECT number, pickup_code FROM work_orders WHERE id=?", (wid,)).fetchone()
+    lt = csrf(pub, "/arende")
+    r = pub.post("/arende", data={"_csrf": lt, "number": num.lower().replace("-", " ", 1), "code": code})
+    assert r.status_code == 302 and "/s/" in r.headers["Location"], r.status_code
+    r = pub.post("/arende", data={"_csrf": lt, "number": num, "code": "0000" if code != "0000" else "1111"})
+    assert "Vi hittade inget ärende" in r.get_data(as_text=True)
+
     # Testmejl via inställningar
     sent.clear()
     r = adm.post("/admin/epost/test", data={"_csrf": tok, "to": "x@test.se"})

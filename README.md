@@ -2,6 +2,12 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.0
+- **Startsidan** (`/`) har navigering, tjänster och priser, "så går det till", vanliga frågor, kontakt och nästa lediga tid som går att boka med ett klick.
+- **Följ ditt ärende** (`/arende`): kunden slår upp sitt ärende med ärendenumret och hämtkoden från mottagningssedeln.
+- **Bokningen** visar en sammanfattning bredvid formuläret på datorn och en fast rad längst ner i mobilen.
+- **Ny design:** ljus och neutral, med systemets typsnitt, svarta huvudknappar, gult som varumärkesfärg och mörkt läge.
+
 ## Nytt i 2.0
 - **Bokning på under en minut.** Kunden väljer typ, tjänst med pris och dag i en datumremsa, och ser en sammanfattning med knappen alltid synlig. Bekräftelsen kan ske automatiskt.
 - **Tavla** med en kolumn per status. Ärenden flyttas med en knapptryckning, och kunden mejlas automatiskt vid offert och när det är klart.

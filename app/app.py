@@ -28,7 +28,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "2.3.0"
+VERSION = "3.0.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -760,7 +760,8 @@ app.jinja_env.globals.update(csrf_token=csrf_token, WO_STATUSES=WO_STATUSES,
 
 @app.context_processor
 def inject_globals():
-    ctx = {"S": settings(), "is_admin": bool(session.get("admin"))}
+    ctx = {"S": settings(), "is_admin": bool(session.get("admin")), "YEAR": now().year,
+           "hours_text": opening_hours_text()}
     if session.get("admin"):
         ctx["nav_new_bookings"] = q("SELECT COUNT(*) c FROM bookings WHERE status='ny'", one=True)["c"]
         ctx["label_printer"] = label_printer_ready()
@@ -842,7 +843,30 @@ def available_slots():
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index():
-    return redirect(url_for("book"))
+    slots = available_slots() if settings().get("booking_enabled") == "1" else []
+    next_slot = slots[0][1][0] if slots else None
+    services = active_services()
+    return render_template("public/home.html", services=services, categories=categories(), next_slot=next_slot,
+                           hours=opening_hours_text(), free_days=len(slots))
+
+
+@app.route("/arende", methods=["GET", "POST"])
+def lookup():
+    """Kunden slår upp sitt ärende med ärendenummer + hämtkod (från mottagningssedeln)."""
+    error = None
+    number = clean(request.form.get("number"), 30).upper().replace(" ", "")
+    if request.method == "POST":
+        code = clean(request.form.get("code"), 10)
+        if rate_limited(f"lookup:{client_ip()}", 10, 600) or (number and rate_limited(f"lookup-wo:{number}", 10, 3600)):
+            error = "För många försök. Vänta en stund och försök igen."
+        else:
+            if number and not number.startswith("AO-") and number[:2] == "AO":
+                number = "AO-" + number[2:].lstrip("-")
+            wo = q("SELECT token, pickup_code FROM work_orders WHERE number=? COLLATE NOCASE", (number,), one=True)
+            if wo and wo["pickup_code"] and code and secrets.compare_digest(code, wo["pickup_code"]):
+                return redirect(url_for("status", token=wo["token"]))
+            error = "Vi hittade inget ärende med det numret och den koden. Båda står på mottagningssedeln."
+    return render_template("public/lookup.html", error=error, number=number)
 
 
 @app.route("/healthz")
@@ -864,6 +888,8 @@ def book():
     slots = available_slots()
     valid_slots = {k for _, day in slots for k in day}
     form = request.form if request.method == "POST" else {}
+    if request.method == "GET" and request.args.get("tid") in valid_slots:
+        form = {"slot": request.args["tid"]}  # förvald tid från startsidan
     errors = []
 
     if request.method == "POST":

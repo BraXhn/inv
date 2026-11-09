@@ -77,8 +77,7 @@
   // ---------- Bokningsformuläret ----------
   var form = document.getElementById('booking');
   if (!form) { return; }
-  var summaryWhat = document.getElementById('sum-what');
-  var summaryWhen = document.getElementById('sum-when');
+  function setSum(key, text) { form.querySelectorAll('[data-sum="' + key + '"]').forEach(function (el) { el.textContent = text; }); }
 
   function checked(name) { return form.querySelector('input[name="' + name + '"]:checked'); }
   function labelText(input) {
@@ -110,9 +109,9 @@
   function updateSummary() {
     var cat = checked('category'), svc = checked('service_id'), slot = checked('slot');
     var item = (form.querySelector('[name=item]') || {}).value || '';
-    var what = [labelText(svc) || (cat ? cat.value : ''), item].filter(Boolean).join(' · ');
-    if (summaryWhat) { summaryWhat.textContent = what || 'Välj vad du vill lämna in'; }
-    if (summaryWhen) { summaryWhen.textContent = slot ? labelText(slot) : 'Ingen tid vald än'; }
+    var what = [labelText(svc) || (cat ? cat.value : ''), item].filter(Boolean).join(', ');
+    setSum('what', what || 'Välj vad det gäller');
+    setSum('when', slot ? labelText(slot) : 'Ingen tid vald');
     form.querySelectorAll('[data-step]').forEach(function (st) {
       var key = st.getAttribute('data-step'), done = false;
       if (key === 'what') { done = !!cat && (!!svc || item.length > 1); }

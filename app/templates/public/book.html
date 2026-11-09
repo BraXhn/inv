@@ -3,12 +3,10 @@
 {% block title %}Boka tid – {{ S.business_name }}{% endblock %}
 {% macro price(s) %}{% if s.price_from is not none %}{{ '' if s.price_fixed else 'från ' }}{{ s.price_from|money }}{% else %}Offert{% endif %}{% endmacro %}
 {% block content %}
-<header class="masthead">
-  <div class="mark">{{ icon('wrench') }}</div>
-  <h1>{{ S.business_name }}</h1>
+<div class="page-title">
+  <h1>Boka tid</h1>
   <p>{{ S.booking_intro or S.tagline }}</p>
-  <div class="facts">{% if hours %}<span>Öppet {{ hours }}</span>{% endif %}{% if S.address %}<span>{{ S.address }}</span>{% endif %}<span>Offert innan vi reparerar</span></div>
-</header>
+</div>
 
 {% if errors %}<ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
 
@@ -17,7 +15,8 @@
   <p class="mb0">Alla tider är tyvärr bokade just nu. Titta in igen om några dagar{% if S.contact_email %} eller mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
 </div>
 {% else %}
-<form method="post" id="booking" novalidate>
+<form method="post" id="booking" class="book-layout" novalidate>
+  <div>
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <div class="hp" aria-hidden="true"><label>Lämna tomt <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 
@@ -102,9 +101,23 @@
       <span>Jag godkänner att mina uppgifter sparas för att hantera bokningen. <a href="{{ url_for('privacy') }}" target="_blank">Så hanterar vi dem</a></span></label>
   </section>
 
+  </div>
+
+  <aside class="book-aside">
+    <div class="card">
+      <h2>Din bokning</h2>
+      <dl>
+        <dt>Tid</dt><dd data-sum="when">Ingen tid vald</dd>
+        <dt>Gäller</dt><dd data-sum="what">–</dd>
+      </dl>
+      <button type="submit" class="lg block">Boka tiden</button>
+      <p class="help">{% if hours %}Öppet {{ hours }}. {% endif %}{% if S.address %}{{ S.address }}. {% endif %}Du får en offert innan vi reparerar något utöver det du bokat.</p>
+    </div>
+  </aside>
+
   <div class="summary">
     <div class="summary-in">
-      <div class="what"><b id="sum-when">Ingen tid vald</b><span id="sum-what">Välj vad det gäller och en tid</span></div>
+      <div class="what"><b data-sum="when">Ingen tid vald</b><span data-sum="what">Välj vad det gäller och en tid</span></div>
       <button type="submit" class="lg">Boka tiden</button>
     </div>
   </div>

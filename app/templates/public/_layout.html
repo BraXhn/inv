@@ -1,12 +1,27 @@
 {% extends "base.html" %}
 {% block body %}
+<header class="site-nav no-print">
+  <div class="in">
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">{{ icon('wrench') }}</span><span>{{ S.business_name }}</span></a>
+    <nav aria-label="Huvudmeny">
+      <a href="{{ url_for('index') }}#tjanster">Tjänster och priser</a>
+      <a href="{{ url_for('index') }}#sa-gar-det-till">Så går det till</a>
+      <a href="{{ url_for('lookup') }}">Följ ditt ärende</a>
+      <a href="{{ url_for('index') }}#kontakt">Kontakt</a>
+      {% if request.endpoint != 'book' %}<a class="btn small" href="{{ url_for('book') }}">Boka tid</a>{% endif %}
+    </nav>
+  </div>
+</header>
 <main class="pub">
-  {% for cat, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }} no-print">{{ icon('alert' if cat == 'error' else 'check') }}<span>{{ m }}</span></div>{% endfor %}
+  {% for cat, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }} no-print pub-narrow mt">{{ icon('alert' if cat == 'error' else 'check') }}<span>{{ m }}</span></div>{% endfor %}
   {% block content %}{% endblock %}
-  <footer class="footer">
-    <b>{{ S.business_name }}</b>{% if S.address %}<br>{{ S.address }}{% endif %}
-    {% if S.contact_phone or S.contact_email %}<br>{% if S.contact_phone %}<a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}{% if S.contact_phone and S.contact_email %}, {% endif %}{% if S.contact_email %}<a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}{% endif %}
-    <p class="mt mb0"><a href="{{ url_for('book') }}">Boka tid</a>&emsp;<a href="{{ url_for('privacy') }}">Så hanterar vi dina uppgifter</a></p>
-  </footer>
 </main>
+<footer class="site-footer no-print">
+  <div class="in">
+    <div><b>{{ S.business_name }}</b>{{ S.tagline }}{% if S.address %}<br>{{ S.address }}{% endif %}</div>
+    <div><b>Kontakt</b>{% if S.contact_phone %}<a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}{% if S.contact_email %}<a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}{% if hours_text %}<span>Öppet {{ hours_text }}</span>{% endif %}</div>
+    <div><b>Kunder</b><a href="{{ url_for('book') }}">Boka tid</a><a href="{{ url_for('lookup') }}">Följ ditt ärende</a><a href="{{ url_for('privacy') }}">Personuppgifter</a></div>
+    <div class="legal">© {{ YEAR }} {{ S.business_name }}</div>
+  </div>
+</footer>
 {% endblock %}

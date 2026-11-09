@@ -1,7 +1,8 @@
 {% extends "public/_layout.html" %}
 {% block title %}Din bokning – {{ S.business_name }}{% endblock %}
 {% block content %}
-<header class="masthead"><div class="mark">{{ icon('wrench') }}</div><h1>{{ S.business_name }}</h1></header>
+<div class="pub-narrow">
+{% if not (booking and is_new and not wo) %}<div class="page-title"><h1>{{ 'Ditt ärende' if wo else 'Din bokning' }}</h1></div>{% endif %}
 
 {% if wo %}
   {% set order = ['inlamnad','felsokning','pagar','klar','utlamnad'] %}
@@ -91,4 +92,5 @@
     </ol>
   </section>
 {% endif %}
+</div>
 {% endblock %}
