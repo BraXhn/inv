@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block head %}<link rel="manifest" href="{{ url_for('manifest') }}">{% endblock %}
+{% set ep = request.endpoint or '' %}
+{% macro navlink(endpoint, label, ic, active, count=0, live=False) %}
+<a href="{{ url_for(endpoint) }}" class="{{ 'on' if active }}">{{ icon(ic) }}<span>{{ label }}</span>{% if count %}<span class="count {{ 'live' if live }}">{{ count }}</span>{% endif %}</a>
+{% endmacro %}
+{% block body %}
+<div class="shell">
+  <aside class="side no-print">
+    <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('wrench') }}</span><span>{{ S.business_name }}<small>Verkstadssystem</small></span></a>
+    <nav class="nav">
+      {{ navlink('dashboard', 'Översikt', 'home', ep == 'dashboard') }}
+      {{ navlink('board', 'Tavla', 'board', ep == 'board', nav_timers, True) }}
+      {{ navlink('wo_list', 'Arbetsordrar', 'list', ep.startswith('wo_')) }}
+      {{ navlink('bookings_list', 'Bokningar', 'calendar', ep.startswith('booking'), nav_new_bookings) }}
+      {{ navlink('customers_list', 'Kunder', 'users', ep.startswith('customer')) }}
+      <div class="nav-sep"></div>
+      {{ navlink('parts_list', 'Lager', 'box', ep.startswith('part') or ep == 'shopping_list') }}
+      {{ navlink('locations_list', 'Platser & taggar', 'pin', ep.startswith('location') or ep == 'labels') }}
+      {{ navlink('services_admin', 'Tjänster & priser', 'tag', ep == 'services_admin') }}
+    </nav>
+    <div class="grow"></div>
+    <nav class="nav">
+      <a href="{{ url_for('book') }}" target="_blank" rel="noopener">{{ icon('arrow') }}<span>Bokningssidan</span></a>
+      {{ navlink('mail_log_page', 'E-postlogg', 'mail', ep == 'mail_log_page') }}
+      {{ navlink('settings_page', 'Inställningar', 'gear', ep == 'settings_page') }}
+      <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button>{{ icon('logout') }}<span>Logga ut</span></button></form>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar no-print">
+      <a class="brand mobile-brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('wrench') }}</span></a>
+      <form class="search" method="get" action="{{ url_for('search') }}" role="search">
+        {{ icon('search') }}
+        <input type="search" name="q" id="global-search" placeholder="Sök ärende, kund, del, tagg…" value="{{ request.args.get('q', '') if ep == 'search' else '' }}" autocomplete="off">
+        <kbd>/</kbd>
+      </form>
+      <a class="btn" href="{{ url_for('wo_new') }}">{{ icon('plus') }}<span class="hide-sm">Inlämning</span></a>
+    </header>
+    <div class="content">
+      {% for cat, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }} no-print">{{ icon('alert' if cat == 'error' else 'check') }}<span>{{ m }}</span></div>{% endfor %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+<nav class="bottomnav no-print">
+  <a href="{{ url_for('dashboard') }}" class="{{ 'on' if ep == 'dashboard' }}">{{ icon('home') }}Översikt</a>
+  <a href="{{ url_for('board') }}" class="{{ 'on' if ep == 'board' }}">{{ icon('board') }}Tavla{% if nav_timers %}<span class="dot"></span>{% endif %}</a>
+  <a href="{{ url_for('bookings_list') }}" class="{{ 'on' if ep.startswith('booking') }}">{{ icon('calendar') }}Bokningar{% if nav_new_bookings %}<span class="dot"></span>{% endif %}</a>
+  <a href="{{ url_for('parts_list') }}" class="{{ 'on' if ep.startswith('part') }}">{{ icon('box') }}Lager</a>
+  <a href="{{ url_for('settings_page') }}" class="{{ 'on' if ep in ('settings_page', 'customers_list', 'locations_list', 'services_admin') }}">{{ icon('menu') }}Mer</a>
+</nav>
+{% endblock %}

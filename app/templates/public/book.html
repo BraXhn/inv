@@ -1,64 +1,117 @@
 {% extends "public/_layout.html" %}
 {% block robots %}index{% endblock %}
 {% block title %}Boka tid – {{ S.business_name }}{% endblock %}
+{% macro price(s) %}{% if s.price_from is not none %}{{ '' if s.price_fixed else 'från ' }}{{ s.price_from|money }}{% else %}Offert{% endif %}{% endmacro %}
 {% block content %}
-<div class="public-head">
+<header class="hero">
+  <div class="logo">{{ icon('wrench') }}</div>
   <h1>{{ S.business_name }}</h1>
-  <p class="muted">{{ S.booking_intro }}</p>
+  <p>{{ S.booking_intro or S.tagline }}</p>
+  <div class="trust">
+    {% if hours %}<span>{{ icon('clock') }}{{ hours }}</span>{% endif %}
+    {% if S.address %}<span>{{ icon('pin') }}{{ S.address }}</span>{% endif %}
+    <span>{{ icon('shield') }}Offert innan vi reparerar</span>
+  </div>
+</header>
+
+{% if errors %}<ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+
+{% if not slots %}
+<div class="step center">
+  <p class="mb0">Alla tider är tyvärr bokade just nu. Titta in igen om några dagar{% if S.contact_email %} eller mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
 </div>
-
-{% if errors %}<ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-
-<form method="post" class="card" novalidate>
+{% else %}
+<form method="post" id="booking" novalidate>
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
   <div class="hp" aria-hidden="true"><label>Lämna tomt <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 
-  <h2>1. Vad gäller det?</h2>
-  <div class="fields">
-    <div>
-      <label for="category">Typ</label>
-      <select id="category" name="category" required>
-        <option value="">Välj…</option>
-        {% for c in categories %}<option {{ 'selected' if form.get('category') == c }}>{{ c }}</option>{% endfor %}
-      </select>
+  <section class="step" data-step="what">
+    <div class="step-head"><span class="step-num">1</span><h2>Vad vill du lämna in?</h2></div>
+    <div class="tiles">
+      {% for c in categories %}
+      <div class="tile">
+        <input type="radio" name="category" id="cat-{{ loop.index }}" value="{{ c }}" {{ 'checked' if form.get('category') == c }}>
+        <label for="cat-{{ loop.index }}">{{ icon('bike' if c == 'Cykel' else 'chip' if c == 'Elektronik' else 'wrench') }}{{ c }}</label>
+      </div>
+      {% endfor %}
     </div>
-    <div>
-      <label for="item">Märke och modell</label>
-      <input id="item" type="text" name="item" maxlength="200" value="{{ form.get('item', '') }}" placeholder="t.ex. Scott Spark 930 / Marantz PM6006" required>
-    </div>
-  </div>
-  <label for="description">Beskriv felet eller vad du vill ha gjort</label>
-  <textarea id="description" name="description" maxlength="3000" required>{{ form.get('description', '') }}</textarea>
 
-  <h2 class="mt">2. Välj tid för inlämning</h2>
-  {% if slots %}
-  <div class="slots">
+    {% if services %}
+    <p class="help js-only" id="svc-hint">Välj typ ovan så visas våra tjänster.</p>
+    {% for c in categories %}
+      {% set group = services|selectattr('category', 'equalto', c)|list %}
+      {% if group %}
+      <div class="svc-group" data-svc-cat="{{ c }}">
+        <h3 class="nojs-only">{{ c }}</h3>
+        <label class="js-only">Vad ska vi göra?</label>
+        <div class="svc-list">
+          {% for s in group %}
+          <div class="tile">
+            <input type="radio" name="service_id" id="svc-{{ s.id }}" value="{{ s.id }}" {{ 'checked' if form.get('service_id') == s.id|string }}>
+            <label for="svc-{{ s.id }}" data-label="{{ s.name }}"><span class="txt">{{ s.name }}{% if s.description %}<span class="desc">{{ s.description }}</span>{% endif %}</span><span class="price">{{ price(s) }}</span></label>
+          </div>
+          {% endfor %}
+          <div class="tile">
+            <input type="radio" name="service_id" id="svc-annat-{{ loop.index }}" value="" {{ 'checked' if form.get('service_id') == '' and form.get('category') == c }}>
+            <label for="svc-annat-{{ loop.index }}" data-label="Annat"><span class="txt">Annat / vet inte<span class="desc">Beskriv nedan så hjälper vi dig.</span></span></label>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    <label for="item">Märke och modell</label>
+    <input id="item" type="text" name="item" maxlength="200" value="{{ form.get('item', '') }}" placeholder="t.ex. Scott Spark 930 eller Marantz PM6006" required>
+    <label for="description">Beskrivning <span class="muted">(valfritt om du valt en tjänst)</span></label>
+    <textarea id="description" name="description" maxlength="3000" placeholder="Vad är fel, eller vad vill du ha gjort?">{{ form.get('description', '') }}</textarea>
+  </section>
+
+  <section class="step" data-step="when">
+    <div class="step-head"><span class="step-num">2</span><h2>När passar det att lämna in?</h2></div>
+    <div class="days js-only" role="radiogroup" aria-label="Dag">
+      {% for day, times in slots %}
+      {% set parts = (day|d).split(' ') %}
+      <div class="day">
+        <input type="radio" name="day" id="d-{{ day.isoformat() }}" value="{{ day.isoformat() }}">
+        <label for="d-{{ day.isoformat() }}"><small>{{ parts[0] }}</small><b>{{ parts[1] }}</b><span>{{ parts[2] }}</span></label>
+      </div>
+      {% endfor %}
+    </div>
     {% for day, times in slots %}
-    {% set has_sel = form.get('slot', '')[:10] == day.isoformat() %}
-    <details class="slotday" {{ 'open' if loop.index <= 2 or has_sel }}>
-      <summary>{{ day|d }} <span class="muted small">· {{ times|length }} lediga</span></summary>
-      <div class="opts">
+    <div class="daygroup" data-day="{{ day.isoformat() }}">
+      <h3>{{ day|d }}</h3>
+      <div class="times">
         {% for t in times %}
-        <input type="radio" name="slot" id="s{{ t|replace(':', '')|replace('-', '') }}" value="{{ t }}" {{ 'checked' if form.get('slot') == t }} required>
-        <label for="s{{ t|replace(':', '')|replace('-', '') }}">{{ t[11:16] }}</label>
+        {% set sid = 's' ~ t|replace(':', '')|replace('-', '') %}
+        <div class="slot">
+          <input type="radio" name="slot" id="{{ sid }}" value="{{ t }}" {{ 'checked' if form.get('slot') == t }}>
+          <label for="{{ sid }}" data-label="{{ day|d }} kl {{ t[11:16] }}">{{ t[11:16] }}</label>
+        </div>
         {% endfor %}
       </div>
-    </details>
+    </div>
     {% endfor %}
-  </div>
-  {% else %}
-  <p class="muted">Det finns inga lediga tider just nu. Titta igen om några dagar{% if S.contact_email %} eller mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}.</p>
-  {% endif %}
+  </section>
 
-  <h2>3. Dina uppgifter</h2>
-  <div class="fields">
-    <div><label for="name">Namn</label><input id="name" type="text" name="name" maxlength="120" autocomplete="name" value="{{ form.get('name', '') }}" required></div>
-    <div><label for="email">E-post</label><input id="email" type="email" name="email" maxlength="200" autocomplete="email" value="{{ form.get('email', '') }}" required></div>
-    <div><label for="phone">Telefon (valfritt)</label><input id="phone" type="tel" name="phone" maxlength="40" autocomplete="tel" value="{{ form.get('phone', '') }}"></div>
+  <section class="step" data-step="who" id="step-who">
+    <div class="step-head"><span class="step-num">3</span><h2>Dina uppgifter</h2></div>
+    <label for="name">Namn</label>
+    <input id="name" type="text" name="name" maxlength="120" autocomplete="name" value="{{ form.get('name', '') }}" required>
+    <div class="fields">
+      <div><label for="email">E-post</label><input id="email" type="email" name="email" maxlength="200" autocomplete="email" inputmode="email" value="{{ form.get('email', '') }}" required></div>
+      <div><label for="phone">Telefon <span class="muted">(valfritt)</span></label><input id="phone" type="tel" name="phone" maxlength="40" autocomplete="tel" value="{{ form.get('phone', '') }}"></div>
+    </div>
+    <label class="check mt"><input type="checkbox" name="consent" value="1" {{ 'checked' if form.get('consent') }} required>
+      <span>Jag godkänner att mina uppgifter sparas för att hantera bokningen. <a href="{{ url_for('privacy') }}" target="_blank">Så hanterar vi dem</a></span></label>
+  </section>
+
+  <div class="summary">
+    <div class="summary-in">
+      <div class="what"><b id="sum-when">Välj en tid ovan</b><span id="sum-what">Fyll i formuläret och skicka</span></div>
+      <button type="submit" class="lg">Boka</button>
+    </div>
   </div>
-  <label class="check"><input type="checkbox" name="consent" value="1" {{ 'checked' if form.get('consent') }} required>
-    <span>Jag godkänner att mina uppgifter sparas för att hantera bokningen och reparationen. <a href="{{ url_for('privacy') }}" target="_blank">Läs mer</a></span></label>
-  <p><button type="submit" {{ 'disabled' if not slots }}>Skicka bokningsförfrågan</button></p>
-  <p class="small muted">Du får en länk där du kan följa bokningen och senare reparationens status.</p>
 </form>
+{% endif %}
 {% endblock %}

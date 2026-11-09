@@ -1,40 +1,98 @@
-{% extends "base.html" %}
-{% from "admin/_macros.html" import wo_table %}
-{% block title %}Översikt{% endblock %}
+{% extends "admin/_shell.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Översikt – {{ S.business_name }}{% endblock %}
 {% block content %}
-<div class="spread">
-  <h1>Översikt</h1>
-  <div class="row"><a class="btn" href="{{ url_for('wo_new') }}">+ Ny arbetsorder</a><a class="btn ghost" href="{{ url_for('part_new') }}">+ Ny del</a></div>
+<div class="page-head">
+  <div><h1>{{ greeting }}</h1><div class="sub">{{ now_text }}</div></div>
+  <div class="actions"><a class="btn ghost" href="{{ url_for('board') }}">{{ icon('board') }} Öppna tavlan</a></div>
 </div>
 
-<div class="stats">
-  {% for key, label in WO_STATUSES if key not in ('utlamnad', 'avbruten') %}
-  <a class="stat" href="{{ url_for('wo_list', status=key) }}"><b>{{ counts.get(key, 0) }}</b><span>{{ label }}</span></a>
+<div class="kpis">
+  <a class="kpi" href="{{ url_for('board') }}"><span class="klabel">Öppna ärenden</span><span class="value">{{ open_count }}</span><span class="hint">{{ counts.get('pagar', 0) }} pågår · {{ counts.get('vantar_delar', 0) }} väntar delar</span></a>
+  <a class="kpi {{ 'hot' if counts.get('klar') }}" href="{{ url_for('wo_list', status='klar') }}"><span class="klabel">Klara för hämtning</span><span class="value">{{ counts.get('klar', 0) }}</span><span class="hint">Väntar på kunden</span></a>
+  <a class="kpi" href="{{ url_for('wo_list', status='offert') }}"><span class="klabel">Offerter ute</span><span class="value">{{ counts.get('offert', 0) }}</span><span class="hint">Väntar på godkännande</span></a>
+  <div class="kpi"><span class="klabel">Denna månad</span><span class="value">{{ revenue|money }}</span><span class="hint">{{ closed_count }} utlämnade · {{ '%.1f'|format(hours)|replace('.', ',') }} h arbete</span></div>
+</div>
+
+{% if timers %}
+<div class="card accent">
+  {% for w in timers %}
+  <div class="spread">
+    <div class="row"><span class="pill live">Timer</span> <a href="{{ url_for('wo_detail', wid=w.id) }}"><b>{{ w.number }}</b> {{ w.item }}</a> <span class="muted small">{{ w.customer_name }}</span></div>
+    <div class="row"><span class="timer" data-since="{{ w.timer_started_at }}">{{ w.timer_started_at|age }}</span>
+      <form method="post" action="{{ url_for('wo_timer', wid=w.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="back" value="oversikt"><button class="small">{{ icon('stop') }} Stoppa</button></form></div>
+  </div>
   {% endfor %}
-  <div class="stat"><b>{{ revenue|money }}</b><span>Utlämnat denna månad ({{ closed_count }} st)</span></div>
 </div>
+{% endif %}
 
-<div class="grid">
-  <div class="card">
-    <div class="spread"><h2>Kommande bokningar</h2><a class="small" href="{{ url_for('bookings_list') }}">Alla</a></div>
-    {% for b in upcoming %}
-      <p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> <b>{{ b.slot_start|dt }}</b><br>
-      <span class="small">{{ b.name }} – {{ b.category }}: {{ b.item }}</span></p>
-    {% else %}<p class="muted">Inga kommande bokningar.</p>{% endfor %}
+<div class="grid-2">
+  <div>
+    {% if new_bookings %}
+    <div class="card flush warn">
+      <div class="card-head"><h2>{{ icon('alert') }} Att bekräfta ({{ new_bookings|length }})</h2></div>
+      <ul class="list">
+        {% for b in new_bookings %}
+        <li>
+          <div class="time-box"><b>{{ b.slot_start[11:16] }}</b><span>{{ (b.slot_start|d).split(' ')[0] }} {{ (b.slot_start|d).split(' ')[1] }}</span></div>
+          <div class="grow"><span class="title">{{ b.item }}</span><span class="meta">{{ b.name }} · {{ b.service_name or b.category }}</span></div>
+          <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">{{ icon('check') }} Bekräfta</button></form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="card flush">
+      <div class="card-head"><h2>Idag</h2><a class="small" href="{{ url_for('bookings_list') }}">Alla bokningar</a></div>
+      <ul class="list">
+        {% for b in todays %}
+        <li>
+          <div class="time-box"><b>{{ b.slot_start[11:16] }}</b><span>idag</span></div>
+          <div class="grow"><span class="title">{{ b.item }}</span><span class="meta">{{ b.name }}{% if b.phone %} · {{ b.phone }}{% endif %} · {{ b.service_name or b.category }}</span></div>
+          {% if b.work_order_id %}
+            <a class="btn small ghost" href="{{ url_for('wo_detail', wid=b.work_order_id) }}">Öppna ärende</a>
+          {% else %}
+            <form method="post" action="{{ url_for('booking_to_wo', bid=b.id) }}" class="inline">{{ csrf() }}<button class="small">{{ icon('check') }} Ta emot</button></form>
+          {% endif %}
+        </li>
+        {% else %}
+        <li class="empty">{{ icon('calendar') }}Inga inlämningar idag.</li>
+        {% endfor %}
+      </ul>
+      {% if upcoming %}
+      <div class="card-head"><h2 class="small muted">Kommande</h2></div>
+      <ul class="list">
+        {% for b in upcoming %}
+        <li><div class="time-box"><b>{{ b.slot_start[11:16] }}</b><span>{{ (b.slot_start|d).split(' ')[0] }} {{ (b.slot_start|d).split(' ')[1] }}</span></div>
+          <div class="grow"><span class="title">{{ b.item }}</span><span class="meta">{{ b.name }} · {{ b.service_name or b.category }}</span></div></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="card">
-    <div class="spread"><h2>Att beställa</h2><a class="small" href="{{ url_for('shopping_list') }}">Inköpslista</a></div>
-    {% for p in low %}
-      <p><a href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a> <span class="small muted">{{ p.qty|qty }} {{ p.unit }} kvar (min {{ p.min_qty|qty }})</span></p>
-    {% else %}<p class="muted">Allt i lager över beställningspunkten.</p>{% endfor %}
+  <div>
+    <div class="card flush">
+      <div class="card-head"><h2>Kräver åtgärd</h2></div>
+      <ul class="list">
+        {% for w, why in attention[:12] %}
+        <li><div class="grow"><a class="title" href="{{ url_for('wo_detail', wid=w.id) }}">{{ w.number }} · {{ w.item }}</a><span class="meta">{{ why }}</span></div></li>
+        {% else %}
+        <li class="empty">{{ icon('check') }}Inget som brinner. Snyggt!</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="card flush">
+      <div class="card-head"><h2>Att beställa</h2><a class="small" href="{{ url_for('shopping_list') }}">Inköpslista</a></div>
+      <ul class="list">
+        {% for p in low[:8] %}
+        <li><div class="grow"><a class="title" href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a><span class="meta">{{ p.qty|qty }} {{ p.unit }} kvar · min {{ p.min_qty|qty }}{% if p.loc %} · {{ p.loc }}{% endif %}</span></div></li>
+        {% else %}
+        <li class="empty">{{ icon('box') }}Lagret ser bra ut.</li>
+        {% endfor %}
+      </ul>
+    </div>
   </div>
 </div>
-
-{% if overdue %}
-<div class="card"><h2>Försenade (passerat klart-datum)</h2>{{ wo_table(overdue) }}</div>
-{% endif %}
-{% if stale %}
-<div class="card"><h2>Inte rörda på 7 dagar</h2>{{ wo_table(stale) }}</div>
-{% endif %}
 {% endblock %}

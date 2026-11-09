@@ -23,7 +23,7 @@ from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -46,6 +46,23 @@ WO_STATUSES = [
 ]
 WO_STATUS_LABEL = dict(WO_STATUSES)
 WO_OPEN = ("inlamnad", "felsokning", "offert", "vantar_delar", "pagar", "klar")
+# Kortare etiketter för tavlan och interna vyer
+WO_STATUS_SHORT = {"inlamnad": "Inlämnad", "felsokning": "Felsökning", "offert": "Offert skickad",
+                   "vantar_delar": "Väntar delar", "pagar": "Pågår", "klar": "Klar", "utlamnad": "Utlämnad",
+                   "avbruten": "Avbruten"}
+# Nästa steg per status: (ny status, knapptext, primär?)
+WO_NEXT = {
+    "inlamnad": [("felsokning", "Börja felsöka", True), ("pagar", "Starta arbete direkt", False)],
+    "felsokning": [("offert", "Skicka offert", True), ("pagar", "Starta arbete", False),
+                   ("vantar_delar", "Väntar på delar", False)],
+    "offert": [("pagar", "Godkänd – starta arbete", True), ("avbruten", "Kunden tackade nej", False)],
+    "vantar_delar": [("pagar", "Delarna har kommit", True)],
+    "pagar": [("klar", "Markera klar", True), ("vantar_delar", "Väntar på delar", False)],
+    "klar": [("utlamnad", "Lämna ut", True)],
+    "utlamnad": [],
+    "avbruten": [("inlamnad", "Återöppna", False)],
+}
+BOARD_COLUMNS = ["inlamnad", "felsokning", "offert", "vantar_delar", "pagar", "klar"]
 
 BOOKING_STATUSES = {"ny": "Ny", "bekraftad": "Bekräftad", "avbojd": "Avböjd",
                     "konverterad": "Inlämnad", "avbokad": "Avbokad"}
@@ -81,8 +98,34 @@ DEFAULT_SETTINGS = {
     "min_notice_hours": "12",
     "blocked_dates": "",
     "retention_months": "24",
+    "accent_color": "#1f6f5c",
+    "response_promise": "Vi bekräftar din tid inom ett dygn.",
+    "tagline": "Cykelservice och elektronikreparationer",
+    "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
+    "reminder_enabled": "1",
+    "smtp_host": "",
+    "smtp_port": "587",
+    "smtp_user": "",
+    "smtp_password": "",
+    "smtp_from": "",
+    "notify_email": "",
+    "api_key": "",
+    "api_cors_origin": "",
     "calendar_token": "",
 }
+
+# Startkatalog utan priser – inga påhittade priser publiceras. Ändra under Admin → Tjänster.
+DEFAULT_SERVICES = [
+    ("Cykel", "Service – bas", "Justering av växlar och bromsar, smörjning, däcktryck och säkerhetskontroll.", 10),
+    ("Cykel", "Service – stor", "Bas-service plus rengöring av drivlina, lagerkontroll och genomgång av vajrar.", 20),
+    ("Cykel", "Punktering / slangbyte", "Lagning eller byte av slang. Tubeless-tätning på förfrågan.", 30),
+    ("Cykel", "Bromsar", "Belägg, luftning av hydrauliska bromsar eller justering.", 40),
+    ("Cykel", "Växlar och drivlina", "Justering, byte av kedja, kassett eller vajrar.", 50),
+    ("Elektronik", "Felsökning", "Vi mäter och hittar felet och ger dig en offert innan vi reparerar.", 10),
+    ("Elektronik", "Lödning och kontakter", "Glappkontakter, trasiga uttag, kablar och lödfogar.", 20),
+    ("Elektronik", "Byte av batteri", "Byte av batteri eller batteripack.", 30),
+    ("Elektronik", "Ljud och förstärkare", "Brum, kanalbortfall, kondensatorbyte och renovering.", 40),
+]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
@@ -122,6 +165,13 @@ CREATE TABLE IF NOT EXISTS bookings (
     category TEXT, item TEXT, description TEXT, slot_start TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'ny', token TEXT NOT NULL UNIQUE, work_order_id INTEGER,
     created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY, category TEXT NOT NULL, name TEXT NOT NULL, description TEXT,
+    price_from REAL, price_fixed INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+    sort INTEGER NOT NULL DEFAULT 100);
+CREATE TABLE IF NOT EXISTS mail_log (
+    id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, to_addr TEXT, subject TEXT, kind TEXT,
+    status TEXT, error TEXT);
 CREATE INDEX IF NOT EXISTS ix_bookings_slot ON bookings(slot_start);
 CREATE INDEX IF NOT EXISTS ix_wo_status ON work_orders(status);
 CREATE INDEX IF NOT EXISTS ix_parts_name ON parts(name);
@@ -175,6 +225,8 @@ _admin_pw = os.environ.get("ADMIN_PASSWORD")
 if not _admin_pw:
     _admin_pw = _persistent_secret("admin_password", "ADMIN_PASSWORD_UNUSED", 12)
     log.warning("ADMIN_PASSWORD saknas – genererat lösenord finns i %s/admin_password", DATA_DIR)
+if len(_admin_pw) < 8:
+    log.warning("ADMIN_PASSWORD är kortare än 8 tecken – byt till ett längre lösenord.")
 ADMIN_HASH = generate_password_hash(_admin_pw)
 del _admin_pw
 
@@ -216,14 +268,34 @@ def x(sql, args=()):
     return cur.lastrowid
 
 
+MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
+    ("bookings", "service_id", "INTEGER"),
+    ("work_orders", "timer_started_at", "TEXT"),
+    ("work_orders", "service_id", "INTEGER"),
+    ("bookings", "reminder_sent_at", "TEXT"),
+]
+
+
 def init_db():
     conn = connect()
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    for table, col, ddl in MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            log.info("Migrering: %s.%s", table, col)
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+    if not conn.execute("SELECT value FROM settings WHERE key='services_seeded'").fetchone():
+        if not conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]:
+            conn.executemany("INSERT INTO services(category, name, description, sort) VALUES (?,?,?,?)",
+                             DEFAULT_SERVICES)
+        conn.execute("INSERT INTO settings(key, value) VALUES ('services_seeded', '1')")
     if os.environ.get("PUBLIC_URL"):  # miljövariabeln vinner, så att Unraid-mallen styr
         conn.execute("UPDATE settings SET value=? WHERE key='public_url'", (os.environ["PUBLIC_URL"].rstrip("/"),))
+    if not conn.execute("SELECT value FROM settings WHERE key='api_key'").fetchone()[0]:
+        conn.execute("UPDATE settings SET value=? WHERE key='api_key'", (secrets.token_urlsafe(32),))
     if not conn.execute("SELECT value FROM settings WHERE key='calendar_token'").fetchone()[0]:
         conn.execute("UPDATE settings SET value=? WHERE key='calendar_token'", (secrets.token_urlsafe(24),))
     conn.commit()
@@ -253,6 +325,29 @@ def setting_int(key, default):
 
 def categories():
     return [c.strip() for c in settings()["categories"].split(",") if c.strip()]
+
+
+def active_services():
+    return q("SELECT * FROM services WHERE active=1 ORDER BY category, sort, name")
+
+
+def opening_hours_text():
+    s = settings()
+    days = sorted(int(d) for d in s["open_days"].split(",") if d.strip().isdigit())
+    if not days:
+        return ""
+    names = [SV_DAYS[d - 1] for d in days]
+    # Slå ihop sammanhängande dagar: mån–fre
+    if days == list(range(days[0], days[-1] + 1)) and len(days) > 2:
+        label = f"{names[0]}–{names[-1]}"
+    else:
+        label = ", ".join(names)
+    return f"{label} {s['open_from']}–{s['open_to']}"
+
+
+def safe_color(val):
+    import re
+    return val if isinstance(val, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", val) else "#1f6f5c"
 
 
 def new_tag():
@@ -372,45 +467,190 @@ def login_required(view):
 
 
 # ---------------------------------------------------------------------------
-# E-post (valfritt, via SMTP-miljövariabler)
+# E-post: SMTP från Inställningar (miljövariabler vinner), HTML + text, bilagor, logg
 # ---------------------------------------------------------------------------
+MAIL_KEYS = ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email")
+
+
+def mail_config():
+    s = settings()
+    cfg = {k: (os.environ.get(k.upper()) or s.get(k) or "").strip() for k in MAIL_KEYS}
+    cfg["smtp_port"] = to_int(cfg["smtp_port"] or 587, 587)
+    cfg["smtp_from"] = cfg["smtp_from"] or cfg["smtp_user"]
+    cfg["notify_email"] = cfg["notify_email"] or s.get("contact_email", "")
+    cfg["business_name"] = s.get("business_name", "")
+    cfg["reply_to"] = s.get("contact_email", "")
+    return cfg
+
+
 def mail_enabled():
-    return bool(os.environ.get("SMTP_HOST"))
+    return bool(mail_config()["smtp_host"])
 
 
-def send_mail(to, subject, body):
-    host = os.environ.get("SMTP_HOST")
-    if not host or not to:
-        return
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ.get("SMTP_USER", "")
-    password = os.environ.get("SMTP_PASSWORD", "")
-    sender = os.environ.get("SMTP_FROM", user)
+def _log_mail(to, subject, kind, status, error=""):
+    try:
+        conn = connect()
+        with conn:
+            conn.execute("INSERT INTO mail_log(created_at, to_addr, subject, kind, status, error) VALUES (?,?,?,?,?,?)",
+                         (now_s(), to, subject[:200], kind, status, (error or "")[:500]))
+        conn.close()
+    except Exception:  # noqa: BLE001
+        log.exception("Kunde inte logga e-post")
+
+
+def _build_message(cfg, to, subject, text, html=None, attachments=()):
+    from email.utils import formataddr, make_msgid
+    msg = EmailMessage()
+    sender = cfg["smtp_from"]
+    if "<" not in sender and cfg["business_name"]:
+        sender = formataddr((cfg["business_name"], sender))
+    msg["From"] = sender
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid(domain=(cfg["smtp_from"].split("@")[-1].strip("> ") or "verkstad.local"))
+    if cfg["reply_to"]:
+        msg["Reply-To"] = cfg["reply_to"]
+    msg.set_content(text)
+    if html:
+        msg.add_alternative(html, subtype="html")
+    for filename, data, mime in attachments:
+        maintype, subtype = mime.split("/", 1)
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
+    return msg
+
+
+def _deliver(cfg, msg):
+    import ssl
+    ctx = ssl.create_default_context()
+    host, port = cfg["smtp_host"], cfg["smtp_port"]
+    if port == 465:
+        srv = smtplib.SMTP_SSL(host, port, timeout=20, context=ctx)
+    else:
+        srv = smtplib.SMTP(host, port, timeout=20)
+        srv.ehlo()
+        if srv.has_extn("starttls"):
+            srv.starttls(context=ctx)
+            srv.ehlo()
+    try:
+        if cfg["smtp_user"]:
+            srv.login(cfg["smtp_user"], cfg["smtp_password"])
+        srv.send_message(msg)
+    finally:
+        try:
+            srv.quit()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def send_mail(to, subject, text, html=None, attachments=(), kind="", sync=False):
+    """Skickar e-post. Asynkront som standard (får aldrig fälla en request). sync=True returnerar (ok, fel)."""
+    cfg = mail_config()
+    if not cfg["smtp_host"] or not to:
+        return (False, "E-post är inte konfigurerad") if sync else False
+    try:
+        msg = _build_message(cfg, to, subject, text, html, attachments)
+    except Exception as exc:  # noqa: BLE001
+        _log_mail(to, subject, kind, "fel", str(exc))
+        return (False, str(exc)) if sync else False
 
     def run():
         try:
-            msg = EmailMessage()
-            msg["From"] = sender
-            msg["To"] = to
-            msg["Subject"] = subject
-            msg.set_content(body)
-            if port == 465:
-                srv = smtplib.SMTP_SSL(host, port, timeout=20)
-            else:
-                srv = smtplib.SMTP(host, port, timeout=20)
-                srv.starttls()
-            if user:
-                srv.login(user, password)
-            srv.send_message(msg)
-            srv.quit()
-        except Exception:  # noqa: BLE001 – e-post får aldrig fälla en request
-            log.exception("Kunde inte skicka e-post till %s", to)
+            _deliver(cfg, msg)
+            _log_mail(to, subject, kind, "skickat")
+            return True, ""
+        except Exception as exc:  # noqa: BLE001
+            log.warning("E-post till %s misslyckades: %s", to, exc)
+            _log_mail(to, subject, kind, "fel", f"{type(exc).__name__}: {exc}")
+            return False, f"{type(exc).__name__}: {exc}"
 
+    if sync:
+        return run()
     threading.Thread(target=run, daemon=True).start()
+    return True
 
 
-def notify_admin(subject, body):
-    send_mail(os.environ.get("NOTIFY_EMAIL") or settings().get("contact_email"), subject, body)
+def render_mail(heading, paragraphs=(), details=(), button=None, links=(), preheader="", note=""):
+    """En gemensam, professionell layout för alla utskick. Returnerar (text, html)."""
+    s = settings()
+    html = render_template("email/base.html", heading=heading, paragraphs=paragraphs, details=details,
+                           button=button, links=links, preheader=preheader or heading, note=note,
+                           accent=safe_color(s.get("accent_color")), hours=opening_hours_text())
+    parts = [heading, ""] + list(paragraphs)
+    if details:
+        parts += [""] + [f"{k}: {v}" for k, v in details]
+    if button:
+        parts += ["", f"{button[0]}: {button[1]}"]
+    for label, url in links:
+        parts.append(f"{label}: {url}")
+    if note:
+        parts += ["", note]
+    footer = [s["business_name"], s.get("address", ""), s.get("contact_phone", ""), s.get("contact_email", "")]
+    parts += ["", "–", " · ".join(f for f in footer if f)]
+    return "\n".join(parts), html
+
+
+def mail_customer(to, subject, kind, **kw):
+    attachments = kw.pop("attachments", ())
+    text, html = render_mail(**kw)
+    return send_mail(to, subject, text, html, attachments, kind=kind)
+
+
+def notify_admin(subject, body, link=None):
+    to = mail_config()["notify_email"]
+    if not to:
+        return
+    text, html = render_mail(subject, [body], button=("Öppna", link) if link else None)
+    send_mail(to, subject, text, html, kind="notis")
+
+
+def booking_details(b, service_name=None):
+    s = settings()
+    d = [("Tid", fmt_dt(b["slot_start"])), ("Gäller", f"{b['category']} – {b['item']}")]
+    if service_name:
+        d.append(("Tjänst", service_name))
+    if s.get("address"):
+        d.append(("Adress", s["address"]))
+    return d
+
+
+def send_booking_confirmation(b, name, email):
+    s = settings()
+    svc = q("SELECT name FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
+    link = f"{base_url()}{url_for('status', token=b['token'])}"
+    ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//braxhn-verkstad//SV", "METHOD:PUBLISH"]
+    ics += ics_event(f"kund-booking-{b['id']}@braxhn-verkstad", datetime.fromisoformat(b["slot_start"]),
+                     setting_int("slot_minutes", 30), f"Inlämning: {b['item']} – {s['business_name']}",
+                     f"Din bokning: {link}", s.get("address", ""))
+    ics.append("END:VCALENDAR")
+    mail_customer(email, f"Bokning bekräftad – {fmt_dt(b['slot_start'])}", "bokning_bekraftad",
+                  heading=f"Välkommen {fmt_dt(b['slot_start'])}!",
+                  paragraphs=[f"Hej {name}! Din tid är bekräftad. Ta med {b['item']} och eventuella tillbehör "
+                              f"som laddare eller lås."],
+                  details=booking_details(b, svc["name"] if svc else None),
+                  button=("Visa eller avboka", link),
+                  note="Kalenderfilen i mejlet lägger in tiden i din kalender.",
+                  attachments=[("bokning.ics", "\r\n".join(ics).encode() + b"\r\n", "text/calendar")])
+
+
+def send_due_reminders():
+    """Påminnelse ca ett dygn före bekräftade tider. Körs av bakgrundstråden var 10:e minut."""
+    if settings().get("reminder_enabled") != "1" or not mail_enabled():
+        return 0
+    lo = (now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")
+    hi = (now() + timedelta(hours=26)).strftime("%Y-%m-%dT%H:%M")
+    recent = (now() - timedelta(hours=2)).isoformat(sep=" ")
+    rows = q("SELECT b.*, c.name, c.email FROM bookings b JOIN customers c ON c.id=b.customer_id "
+             "WHERE b.status='bekraftad' AND b.reminder_sent_at IS NULL AND b.slot_start BETWEEN ? AND ? "
+             "AND b.created_at < ? AND c.email IS NOT NULL AND c.email <> ''", (lo, hi, recent))
+    for b in rows:
+        x("UPDATE bookings SET reminder_sent_at=? WHERE id=?", (now_s(), b["id"]))
+        svc = q("SELECT name FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
+        mail_customer(b["email"], f"Påminnelse: {fmt_dt(b['slot_start'])}", "paminnelse",
+                      heading="Vi ses snart!",
+                      paragraphs=[f"Hej {b['name']}! En påminnelse om din tid för inlämning."],
+                      details=booking_details(b, svc["name"] if svc else None),
+                      button=("Visa eller avboka", f"{base_url()}{url_for('status', token=b['token'])}"))
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -461,9 +701,31 @@ def qr_svg(data):
 
 app.jinja_env.filters.update(dt=fmt_dt, money=fmt_money, qty=fmt_qty,
                              d=lambda v: fmt_dt(v, with_time=False))
+def minutes_since(val):
+    try:
+        return max(0, int((now() - datetime.fromisoformat(val.replace(" ", "T"))).total_seconds() // 60))
+    except (AttributeError, ValueError):
+        return 0
+
+
+def age_text(val):
+    m = minutes_since(val)
+    if m < 60:
+        return f"{m} min"
+    if m < 60 * 24:
+        return f"{m // 60} h"
+    return f"{m // (60 * 24)} d"
+
+
+def icon(name, cls=""):
+    return Markup(f'<svg class="i {cls}" aria-hidden="true"><use href="/static/icons.svg#{name}"></use></svg>')
+
+
+app.jinja_env.filters.update(age=age_text)
 app.jinja_env.globals.update(csrf_token=csrf_token, WO_STATUSES=WO_STATUSES,
-                             WO_STATUS_LABEL=WO_STATUS_LABEL, BOOKING_STATUSES=BOOKING_STATUSES,
-                             qr_svg=qr_svg, tag_url=tag_url, VERSION=VERSION)
+                             WO_STATUS_LABEL=WO_STATUS_LABEL, WO_STATUS_SHORT=WO_STATUS_SHORT,
+                             BOOKING_STATUSES=BOOKING_STATUSES, qr_svg=qr_svg, tag_url=tag_url,
+                             VERSION=VERSION, icon=icon, minutes_since=minutes_since)
 
 
 @app.context_processor
@@ -471,7 +733,26 @@ def inject_globals():
     ctx = {"S": settings(), "is_admin": bool(session.get("admin"))}
     if session.get("admin"):
         ctx["nav_new_bookings"] = q("SELECT COUNT(*) c FROM bookings WHERE status='ny'", one=True)["c"]
+        ctx["nav_timers"] = q("SELECT COUNT(*) c FROM work_orders WHERE timer_started_at IS NOT NULL", one=True)["c"]
     return ctx
+
+
+@app.route("/theme.css")
+def theme_css():
+    color = safe_color(settings().get("accent_color"))
+    css = f":root{{--accent:{color};}}@media (prefers-color-scheme: dark){{:root{{--accent:{color};}}}}"
+    return Response(css, mimetype="text/css", headers={"Cache-Control": "no-cache"})
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    s = settings()
+    data = {"name": s["business_name"], "short_name": s["business_name"][:12], "start_url": "/admin",
+            "display": "standalone", "background_color": "#f6f5f2", "theme_color": safe_color(s.get("accent_color")),
+            "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                      {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                      {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}
+    return Response(json.dumps(data, ensure_ascii=False), mimetype="application/manifest+json")
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +838,14 @@ def book():
         name, email, phone = clean(form.get("name"), 120), clean(form.get("email"), 200).lower(), clean(form.get("phone"), 40)
         category, item = clean(form.get("category"), 40), clean(form.get("item"), 200)
         description, slot = clean(form.get("description"), 3000), form.get("slot", "")
+        service_id = to_int(form.get("service_id")) or None
+        service = None
+        if service_id:
+            service = q("SELECT * FROM services WHERE id=? AND active=1", (service_id,), one=True)
+            if not service:
+                service_id = None
+            elif not category:
+                category = service["category"]
         if not name:
             errors.append("Ange ditt namn.")
         if not email or "@" not in email or "." not in email.split("@")[-1]:
@@ -565,8 +854,8 @@ def book():
             errors.append("Välj vad du vill lämna in.")
         if not item:
             errors.append("Beskriv vad det är (t.ex. märke och modell).")
-        if not description:
-            errors.append("Beskriv felet eller vad du vill ha gjort.")
+        if not description and not service:
+            errors.append("Välj en tjänst eller beskriv kort vad du vill ha gjort.")
         if slot not in valid_slots:
             errors.append("Den valda tiden är inte längre ledig. Välj en annan tid.")
         if not form.get("consent"):
@@ -592,19 +881,32 @@ def book():
                                          "VALUES (?,?,?,?,?)", (name, email, phone, now_s(), now_s())).lastrowid
                     touch_customer(db, cid)
                     token = secrets.token_urlsafe(24)
-                    db.execute("INSERT INTO bookings(customer_id, category, item, description, slot_start, token, created_at) "
-                               "VALUES (?,?,?,?,?,?,?)", (cid, category, item, description, slot, token, now_s()))
+                    auto = s.get("auto_confirm") == "1"
+                    bid = db.execute("INSERT INTO bookings(customer_id, category, item, description, slot_start, token, "
+                                     "created_at, service_id, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                                     (cid, category, item, description, slot, token, now_s(), service_id,
+                                      "bekraftad" if auto else "ny")).lastrowid
             if not errors:
+                b = q("SELECT * FROM bookings WHERE id=?", (bid,), one=True)
                 status_link = f"{base_url()}{url_for('status', token=token)}"
-                send_mail(email, f"Bokningsförfrågan mottagen – {s['business_name']}",
-                          f"Hej {name}!\n\nVi har tagit emot din bokningsförfrågan för {fmt_dt(slot)}.\n"
-                          f"Gäller: {category} – {item}\n\nDu får besked när tiden är bekräftad. "
-                          f"Följ din bokning här:\n{status_link}\n\nHälsningar\n{s['business_name']}")
-                notify_admin(f"Ny bokning {fmt_dt(slot)}: {category} – {item}",
-                             f"{name} ({email}, {phone})\n\n{description}\n\n{base_url()}/admin/bokningar")
+                if auto:
+                    send_booking_confirmation(b, name, email)
+                else:
+                    mail_customer(email, f"Vi har tagit emot din bokning – {s['business_name']}", "bokning_mottagen",
+                                  heading="Tack för din bokning!",
+                                  paragraphs=[f"Hej {name}! Vi har tagit emot din förfrågan.",
+                                              s.get("response_promise") or "Du får besked när tiden är bekräftad."],
+                                  details=booking_details(b, service["name"] if service else None),
+                                  button=("Följ din bokning", status_link))
+                notify_admin(f"Ny bokning {fmt_dt(slot)}: {item}" + (f" · {service['name']}" if service else ""),
+                             f"{name} · {email} {phone}\n{category}: {item}\n{description}"
+                             + ("" if auto else "\n\nVäntar på din bekräftelse."),
+                             link=f"{base_url()}/admin")
                 return redirect(url_for("status", token=token, ny=1))
 
-    return render_template("public/book.html", slots=slots, form=form, errors=errors, categories=categories())
+    services = active_services()
+    return render_template("public/book.html", slots=slots, form=form, errors=errors, categories=categories(),
+                           services=services, hours=opening_hours_text())
 
 
 def _status_context(token):
@@ -632,8 +934,41 @@ def status(token):
         events = q("SELECT * FROM wo_events WHERE work_order_id=? AND public=1 ORDER BY id DESC", (wo["id"],))
         lines = q("SELECT * FROM wo_lines WHERE work_order_id=? ORDER BY id", (wo["id"],))
         totals = wo_totals(wo, lines)
+    service = None
+    sid = (booking["service_id"] if booking else None) or (wo["service_id"] if wo else None)
+    if sid:
+        service = q("SELECT * FROM services WHERE id=?", (sid,), one=True)
     return render_template("public/status.html", wo=wo, booking=booking, events=events, lines=lines,
-                           totals=totals, token=token, is_new=request.args.get("ny"))
+                           totals=totals, token=token, is_new=request.args.get("ny"), service=service)
+
+
+def ics_escape(v):
+    return (v or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def ics_event(uid, start, minutes, summary, description="", location=""):
+    end = start + timedelta(minutes=minutes)
+    lines = ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{now():%Y%m%dT%H%M%S}",
+             f"DTSTART:{start:%Y%m%dT%H%M%S}", f"DTEND:{end:%Y%m%dT%H%M%S}",  # flytande lokal tid (RFC 5545)
+             f"SUMMARY:{ics_escape(summary)}"]
+    if description:
+        lines.append(f"DESCRIPTION:{ics_escape(description)}")
+    if location:
+        lines.append(f"LOCATION:{ics_escape(location)}")
+    return lines + ["END:VEVENT"]
+
+
+@app.route("/s/<token>/kalender.ics")
+def booking_ics(token):
+    b = q("SELECT * FROM bookings WHERE token=?", (token,), one=True) or abort(404)
+    s = settings()
+    body = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//braxhn-verkstad//SV"]
+    body += ics_event(f"kund-booking-{b['id']}@braxhn-verkstad", datetime.fromisoformat(b["slot_start"]),
+                      setting_int("slot_minutes", 30), f"Inlämning: {b['item']} – {s['business_name']}",
+                      f"Följ bokningen: {base_url()}{url_for('status', token=token)}", s.get("address", ""))
+    body.append("END:VCALENDAR")
+    return Response("\r\n".join(body) + "\r\n", mimetype="text/calendar",
+                    headers={"Content-Disposition": "attachment; filename=bokning.ics"})
 
 
 @app.route("/s/<token>/godkann", methods=["POST"])
@@ -647,7 +982,8 @@ def approve_quote(token):
                    (now_s(), now_s(), wo["id"]))
         db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
                    (wo["id"], now_s(), f"Kunden godkände offerten ({fmt_money(wo['price_quote'])}). Arbetet påbörjas."))
-    notify_admin(f"{wo['number']}: offert godkänd", f"{wo['item']} – {fmt_money(wo['price_quote'])}")
+    notify_admin(f"{wo['number']}: offert godkänd", f"{wo['item']} – {fmt_money(wo['price_quote'])}",
+                 link=f"{base_url()}/admin/ao/{wo['id']}")
     flash("Tack! Offerten är godkänd och vi sätter igång.")
     return redirect(url_for("status", token=token))
 
@@ -658,7 +994,14 @@ def cancel_booking(token):
     if not booking or booking["status"] not in ("ny", "bekraftad"):
         abort(400)
     x("UPDATE bookings SET status='avbokad' WHERE id=?", (booking["id"],))
-    notify_admin(f"Avbokning {fmt_dt(booking['slot_start'])}", f"{booking['category']} – {booking['item']}")
+    cust = q("SELECT name, email FROM customers WHERE id=?", (booking["customer_id"],), one=True)
+    if cust and cust["email"]:
+        mail_customer(cust["email"], f"Avbokning bekräftad – {settings()['business_name']}", "avbokning",
+                      heading="Din tid är avbokad",
+                      paragraphs=[f"Hej {cust['name']}! Vi har tagit bort din tid {fmt_dt(booking['slot_start'])}."],
+                      button=("Boka en ny tid", f"{base_url()}{url_for('book')}"))
+    notify_admin(f"Avbokning {fmt_dt(booking['slot_start'])}", f"{booking['category']} – {booking['item']}",
+                 link=f"{base_url()}/admin/bokningar")
     flash("Din bokning är avbokad.")
     return redirect(url_for("status", token=token))
 
@@ -741,25 +1084,139 @@ def tag(code):
 @app.route("/admin")
 @login_required
 def dashboard():
-    counts = {r["status"]: r["c"] for r in q("SELECT status, COUNT(*) c FROM work_orders GROUP BY status")}
     today = now().strftime("%Y-%m-%d")
-    upcoming = q("SELECT b.*, c.name FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id "
-                 "WHERE b.status IN ('ny','bekraftad') AND b.slot_start >= ? ORDER BY b.slot_start LIMIT 10",
-                 (today,))
+    tomorrow = (now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    counts = {r["status"]: r["c"] for r in q("SELECT status, COUNT(*) c FROM work_orders GROUP BY status")}
+    todays = q("SELECT b.*, c.name, c.phone, s.name service_name FROM bookings b "
+               "LEFT JOIN customers c ON c.id=b.customer_id LEFT JOIN services s ON s.id=b.service_id "
+               "WHERE b.status IN ('ny','bekraftad','konverterad') AND b.slot_start >= ? AND b.slot_start < ? "
+               "ORDER BY b.slot_start", (today, tomorrow))
+    new_bookings = q("SELECT b.*, c.name, s.name service_name FROM bookings b "
+                     "LEFT JOIN customers c ON c.id=b.customer_id LEFT JOIN services s ON s.id=b.service_id "
+                     "WHERE b.status='ny' ORDER BY b.slot_start")
+    upcoming = q("SELECT b.*, c.name, s.name service_name FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id "
+                 "LEFT JOIN services s ON s.id=b.service_id WHERE b.status='bekraftad' AND b.slot_start >= ? "
+                 "ORDER BY b.slot_start LIMIT 6", (tomorrow,))
+    open_in = ",".join("?" * len(WO_OPEN))
+    base = ("SELECT w.*, c.name customer_name FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id ")
+    timers = q(base + "WHERE w.timer_started_at IS NOT NULL ORDER BY w.timer_started_at")
+    week_ago = (now() - timedelta(days=7)).isoformat(sep=" ")
+    attention = []  # (wo, orsak) – det som kräver handling, viktigast först
+    for w in q(base + f"WHERE w.status IN ({open_in}) AND w.due_date IS NOT NULL AND w.due_date <> '' "
+               f"AND w.due_date < ? ORDER BY w.due_date", (*WO_OPEN, today)):
+        attention.append((w, f"Försenad – utlovad {fmt_dt(w['due_date'], False)}"))
+    seen = {w["id"] for w, _ in attention}
+    for w in q(base + "WHERE w.status='klar' AND w.updated_at < ? ORDER BY w.updated_at", (week_ago,)):
+        if w["id"] not in seen:
+            attention.append((w, f"Klar men inte hämtad på {age_text(w['updated_at'])}"))
+            seen.add(w["id"])
+    for w in q(base + "WHERE w.status='offert' AND w.updated_at < ?", ((now() - timedelta(days=3)).isoformat(sep=" "),)):
+        if w["id"] not in seen:
+            attention.append((w, f"Offert obesvarad i {age_text(w['updated_at'])} – ring kunden"))
+            seen.add(w["id"])
+    for w in q(base + f"WHERE w.status IN ({open_in}) AND w.updated_at < ? ORDER BY w.updated_at",
+               (*WO_OPEN, week_ago)):
+        if w["id"] not in seen:
+            attention.append((w, f"Inte rörd på {age_text(w['updated_at'])}"))
+            seen.add(w["id"])
     low = q("SELECT p.*, l.name loc FROM parts p LEFT JOIN locations l ON l.id=p.location_id "
             "WHERE p.active=1 AND p.min_qty > 0 AND p.qty <= p.min_qty ORDER BY p.name")
-    stale = q(f"SELECT w.*, c.name customer_name FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id "
-              f"WHERE w.status IN ({','.join('?' * len(WO_OPEN))}) AND w.updated_at < ? ORDER BY w.updated_at",
-              (*WO_OPEN, (now() - timedelta(days=7)).isoformat(sep=" ")))
-    overdue = q(f"SELECT w.*, c.name customer_name FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id "
-                f"WHERE w.status IN ({','.join('?' * len(WO_OPEN))}) AND w.due_date IS NOT NULL AND w.due_date <> '' "
-                f"AND w.due_date < ? ORDER BY w.due_date", (*WO_OPEN, today))
     month_start = now().strftime("%Y-%m-01")
     closed_month = q("SELECT * FROM work_orders WHERE status='utlamnad' AND closed_at >= ?", (month_start,))
     revenue = sum(wo_totals(w, q("SELECT * FROM wo_lines WHERE work_order_id=?", (w["id"],)))["total"]
                   for w in closed_month)
-    return render_template("admin/dashboard.html", counts=counts, upcoming=upcoming, low=low, stale=stale,
-                           overdue=overdue, revenue=revenue, closed_count=len(closed_month))
+    hours = sum((w["labor_minutes"] or 0) for w in closed_month) / 60
+    open_count = sum(counts.get(k, 0) for k in WO_OPEN)
+    h = now().hour
+    greeting = "God morgon!" if h < 10 else "God kväll!" if h >= 18 else "Hej!"
+    full_days = ["måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag"]
+    full_months = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september",
+                   "oktober", "november", "december"]
+    n = now()
+    now_text = f"{full_days[n.weekday()].capitalize()} {n.day} {full_months[n.month - 1]}"
+    return render_template("admin/dashboard.html", greeting=greeting, now_text=now_text,
+                           counts=counts, todays=todays, new_bookings=new_bookings,
+                           upcoming=upcoming, timers=timers, attention=attention, low=low, revenue=revenue,
+                           closed_count=len(closed_month), hours=hours, open_count=open_count)
+
+
+@app.route("/admin/tavla")
+@login_required
+def board():
+    rows = q(f"SELECT w.*, c.name customer_name, l.name loc, "
+             f"(SELECT COUNT(*) FROM wo_lines wl WHERE wl.work_order_id=w.id) nlines FROM work_orders w "
+             f"LEFT JOIN customers c ON c.id=w.customer_id LEFT JOIN locations l ON l.id=w.location_id "
+             f"WHERE w.status IN ({','.join('?' * len(BOARD_COLUMNS))}) ORDER BY "
+             f"CASE WHEN w.due_date IS NULL OR w.due_date='' THEN 1 ELSE 0 END, w.due_date, w.created_at",
+             BOARD_COLUMNS)
+    cols = {k: [] for k in BOARD_COLUMNS}
+    for r in rows:
+        cols[r["status"]].append(r)
+    return render_template("admin/board.html", cols=cols, columns=BOARD_COLUMNS, WO_NEXT=WO_NEXT,
+                           today=now().strftime("%Y-%m-%d"), mail=mail_enabled())
+
+
+@app.route("/admin/sok")
+@login_required
+def search():
+    term = clean(request.args.get("q"), 100)
+    res = {"wo": [], "customers": [], "parts": [], "locations": []}
+    if term:
+        # Exakt träff på arbetsordernummer eller taggkod går direkt till objektet
+        exact = q("SELECT id FROM work_orders WHERE number=? COLLATE NOCASE", (term,), one=True)
+        if exact:
+            return redirect(url_for("wo_detail", wid=exact["id"]))
+        hit = tag_lookup(term.lower())
+        if hit:
+            return redirect(url_for("tag", code=term.lower()))
+        like = f"%{term}%"
+        res["wo"] = q("SELECT w.*, c.name customer_name FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id "
+                      "WHERE w.number LIKE ? OR w.item LIKE ? OR w.serial LIKE ? OR w.problem LIKE ? OR c.name LIKE ? "
+                      "OR c.phone LIKE ? ORDER BY w.id DESC LIMIT 25", (like,) * 6)
+        res["customers"] = q("SELECT * FROM customers WHERE anonymized=0 AND (name LIKE ? OR email LIKE ? OR phone LIKE ?) "
+                             "ORDER BY name LIMIT 25", (like,) * 3)
+        res["parts"] = q("SELECT p.*, l.name loc FROM parts p LEFT JOIN locations l ON l.id=p.location_id "
+                         "WHERE p.active=1 AND (p.name LIKE ? OR p.sku LIKE ? OR p.notes LIKE ? OR p.category LIKE ?) "
+                         "ORDER BY p.name LIMIT 25", (like,) * 4)
+        res["locations"] = q("SELECT * FROM locations WHERE name LIKE ? OR description LIKE ? LIMIT 10", (like,) * 2)
+    total = sum(len(v) for v in res.values())
+    if total == 1:  # en enda träff – gå direkt dit
+        for kind, endpoint, key in (("wo", "wo_detail", "wid"), ("customers", "customer_detail", "cid"),
+                                    ("parts", "part_detail", "pid"), ("locations", "location_detail", "lid")):
+            if res[kind]:
+                return redirect(url_for(endpoint, **{key: res[kind][0]["id"]}))
+    return render_template("admin/search.html", term=term, res=res, total=total)
+
+
+@app.route("/admin/tjanster", methods=["GET", "POST"])
+@login_required
+def services_admin():
+    if request.method == "POST":
+        f = request.form
+        action = f.get("action", "save")
+        sid = to_int(f.get("id"))
+        if action == "delete" and sid:
+            x("UPDATE services SET active=0 WHERE id=?", (sid,))
+            flash("Tjänsten är dold från bokningen.")
+        else:
+            name, category = clean(f.get("name"), 120), clean(f.get("category"), 40)
+            if not name or category not in categories():
+                flash("Ange namn och kategori.", "error")
+                return redirect(url_for("services_admin"))
+            price = to_float(f.get("price_from")) if clean(f.get("price_from")) else None
+            vals = (category, name, clean(f.get("description"), 500), price, 1 if f.get("price_fixed") else 0,
+                    1 if f.get("active") else 0, to_int(f.get("sort"), 100))
+            if sid:
+                x("UPDATE services SET category=?, name=?, description=?, price_from=?, price_fixed=?, active=?, sort=? "
+                  "WHERE id=?", (*vals, sid))
+                flash("Tjänsten är sparad.")
+            else:
+                x("INSERT INTO services(category, name, description, price_from, price_fixed, active, sort) "
+                  "VALUES (?,?,?,?,?,?,?)", vals)
+                flash("Tjänsten är tillagd.")
+        return redirect(url_for("services_admin"))
+    return render_template("admin/services.html", rows=q("SELECT * FROM services ORDER BY active DESC, category, sort, name"),
+                           categories=categories())
 
 
 # ---------------------------------------------------------------------------
@@ -789,17 +1246,18 @@ def booking_status(bid):
     link = f"{base_url()}{url_for('status', token=b['token'])}"
     if action == "bekrafta":
         x("UPDATE bookings SET status='bekraftad' WHERE id=?", (bid,))
-        send_mail(b["email"], f"Bokning bekräftad {fmt_dt(b['slot_start'])} – {s['business_name']}",
-                  f"Hej {b['name']}!\n\nDin tid {fmt_dt(b['slot_start'])} är bekräftad.\n"
-                  f"{('Adress: ' + s['address'] + chr(10)) if s.get('address') else ''}"
-                  f"\nDin bokning: {link}\n\nVälkommen!\n{s['business_name']}")
-        flash("Bokningen är bekräftad." + (" Kunden har fått e-post." if mail_enabled() else ""))
+        if b["email"]:
+            send_booking_confirmation(q("SELECT * FROM bookings WHERE id=?", (bid,), one=True), b["name"], b["email"])
+        flash("Bokningen är bekräftad." + (" Kunden har fått bekräftelse med kalenderfil." if mail_enabled() else ""))
     elif action == "avboj":
         reason = clean(request.form.get("reason"), 500)
         x("UPDATE bookings SET status='avbojd' WHERE id=?", (bid,))
-        send_mail(b["email"], f"Angående din bokning – {s['business_name']}",
-                  f"Hej {b['name']}!\n\nTyvärr kan vi inte ta emot din bokning {fmt_dt(b['slot_start'])}.\n"
-                  f"{reason}\n\nDu är välkommen att boka en annan tid: {base_url()}/boka\n\n{s['business_name']}")
+        if b["email"]:
+            mail_customer(b["email"], f"Angående din bokning – {s['business_name']}", "bokning_avbojd",
+                          heading="Vi kan tyvärr inte ta emot din bokning",
+                          paragraphs=[f"Hej {b['name']}! Tiden {fmt_dt(b['slot_start'])} fungerar tyvärr inte.",
+                                      reason or "Välj gärna en annan tid som passar dig."],
+                          button=("Välj en annan tid", f"{base_url()}{url_for('book')}"))
         flash("Bokningen är avböjd.")
     elif action == "avboka":
         x("UPDATE bookings SET status='avbokad' WHERE id=?", (bid,))
@@ -813,8 +1271,12 @@ def booking_to_wo(bid):
     b = q("SELECT * FROM bookings WHERE id=?", (bid,), one=True) or abort(404)
     if b["work_order_id"]:
         return redirect(url_for("wo_detail", wid=b["work_order_id"]))
+    svc = q("SELECT * FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
+    problem = b["description"] or ""
+    if svc:
+        problem = f"Tjänst: {svc['name']}" + (f"\n{problem}" if problem else "")
     wid = create_work_order(customer_id=b["customer_id"], category=b["category"], item=b["item"],
-                            problem=b["description"], booking_id=bid)
+                            problem=problem, booking_id=bid, service=svc)
     x("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
     flash("Arbetsorder skapad från bokningen. Kunden ser nu status via samma länk.")
     return redirect(url_for("wo_detail", wid=wid))
@@ -824,7 +1286,7 @@ def booking_to_wo(bid):
 # Admin: arbetsordrar
 # ---------------------------------------------------------------------------
 def create_work_order(customer_id, category, item, problem, booking_id=None, serial="", accessories="",
-                      due_date=""):
+                      due_date="", service=None):
     db = get_db()
     for _ in range(5):
         try:
@@ -832,13 +1294,17 @@ def create_work_order(customer_id, category, item, problem, booking_id=None, ser
                 number = next_wo_number(db)
                 wid = db.execute(
                     "INSERT INTO work_orders(number, customer_id, booking_id, category, item, serial, accessories, "
-                    "problem, status, labor_rate, tag_code, token, due_date, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?, 'inlamnad', ?,?,?,?,?,?)",
+                    "problem, status, labor_rate, tag_code, token, due_date, created_at, updated_at, service_id) "
+                    "VALUES (?,?,?,?,?,?,?,?, 'inlamnad', ?,?,?,?,?,?,?)",
                     (number, customer_id, booking_id, category, item, serial, accessories, problem,
                      to_float(settings()["labor_rate"]), new_tag(), secrets.token_urlsafe(24),
-                     due_date or None, now_s(), now_s())).lastrowid
+                     due_date or None, now_s(), now_s(), service["id"] if service else None)).lastrowid
                 db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
                            (wid, now_s(), "Inlämnad och registrerad."))
+                if service and service["price_fixed"] and service["price_from"] is not None:
+                    # Fast pris läggs in direkt – ett steg mindre vid utlämning
+                    db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
+                               "VALUES (?,?,?,?,?,?)", (wid, None, service["name"], 1, service["price_from"], now_s()))
                 touch_customer(db, customer_id)
             return wid
         except sqlite3.IntegrityError:
@@ -880,20 +1346,36 @@ def wo_new():
     if request.method == "POST":
         f = request.form
         cid = to_int(f.get("customer_id"))
+        new_phone, new_email = clean(f.get("new_phone"), 40), clean(f.get("new_email"), 200).lower()
         if not cid and clean(f.get("new_name")):
-            cid = x("INSERT INTO customers(name, email, phone, created_at, last_activity) VALUES (?,?,?,?,?)",
-                    (clean(f.get("new_name"), 120), clean(f.get("new_email"), 200).lower(),
-                     clean(f.get("new_phone"), 40), now_s(), now_s()))
+            # Undvik dubbletter: samma telefon eller e-post = samma kund
+            existing = None
+            if new_phone:
+                existing = q("SELECT id FROM customers WHERE anonymized=0 AND replace(replace(phone,' ',''),'-','')=? "
+                             "LIMIT 1", (new_phone.replace(" ", "").replace("-", ""),), one=True)
+            if not existing and new_email:
+                existing = q("SELECT id FROM customers WHERE anonymized=0 AND lower(email)=? LIMIT 1", (new_email,), one=True)
+            if existing:
+                cid = existing["id"]
+                flash("Kunden fanns redan och är kopplad till ärendet.")
+            else:
+                cid = x("INSERT INTO customers(name, email, phone, created_at, last_activity) VALUES (?,?,?,?,?)",
+                        (clean(f.get("new_name"), 120), new_email, new_phone, now_s(), now_s()))
         if not cid or not clean(f.get("item")):
             flash("Välj eller skapa en kund och ange vad som lämnas in.", "error")
             return redirect(url_for("wo_new"))
-        wid = create_work_order(cid, clean(f.get("category"), 40), clean(f.get("item"), 200),
-                                clean(f.get("problem"), 5000), serial=clean(f.get("serial"), 100),
-                                accessories=clean(f.get("accessories"), 500), due_date=clean(f.get("due_date"), 10))
+        svc = q("SELECT * FROM services WHERE id=?", (to_int(f.get("service_id")),), one=True) if f.get("service_id") else None
+        category = clean(f.get("category"), 40) or (svc["category"] if svc else "")
+        problem = clean(f.get("problem"), 5000)
+        if svc:
+            problem = f"Tjänst: {svc['name']}" + (f"\n{problem}" if problem else "")
+        wid = create_work_order(cid, category, clean(f.get("item"), 200), problem,
+                                serial=clean(f.get("serial"), 100), accessories=clean(f.get("accessories"), 500),
+                                due_date=clean(f.get("due_date"), 10), service=svc)
         return redirect(url_for("wo_detail", wid=wid))
     customers = q("SELECT id, name, phone FROM customers WHERE anonymized=0 ORDER BY name")
     return render_template("admin/wo_new.html", customers=customers, categories=categories(),
-                           preselect=to_int(request.args.get("kund")))
+                           preselect=to_int(request.args.get("kund")), services=active_services())
 
 
 def _load_wo(wid):
@@ -932,8 +1414,50 @@ def wo_detail(wid):
     return render_template("admin/wo_detail.html", wo=wo, lines=lines, events=events, parts=parts,
                            totals=wo_totals(wo, lines), locations=q("SELECT * FROM locations ORDER BY name"),
                            categories=categories(), checklist=INTAKE_CHECKLISTS.get(wo["category"], []),
-                           checked=checked, mail=mail_enabled(),
+                           checked=checked, mail=mail_enabled(), next_steps=WO_NEXT.get(wo["status"], []),
+                           services=q("SELECT * FROM services WHERE active=1 AND category=? ORDER BY sort, name",
+                                      (wo["category"],)),
                            status_url=f"{base_url()}{url_for('status', token=wo['token'])}")
+
+
+def stop_timer(db, wo):
+    """Stoppar en pågående timer och lägger tiden på arbetsordern. Returnerar antal minuter."""
+    if not wo["timer_started_at"]:
+        return 0
+    try:
+        secs = (now() - datetime.fromisoformat(wo["timer_started_at"].replace(" ", "T"))).total_seconds()
+    except ValueError:
+        secs = 0
+    minutes = max(1, int(-(-secs // 60)))  # avrunda uppåt till hel minut
+    db.execute("UPDATE work_orders SET labor_minutes = labor_minutes + ?, timer_started_at=NULL, updated_at=? "
+               "WHERE id=?", (minutes, now_s(), wo["id"]))
+    db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,0)",
+               (wo["id"], now_s(), f"Arbetstid {minutes} min (timer)."))
+    return minutes
+
+
+@app.route("/admin/ao/<int:wid>/timer", methods=["POST"])
+@login_required
+def wo_timer(wid):
+    wo = _load_wo(wid)
+    db = get_db()
+    with db:
+        if wo["timer_started_at"]:
+            minutes = stop_timer(db, wo)
+            flash(f"Timern stoppad – {minutes} min tillagt.")
+        else:
+            db.execute("UPDATE work_orders SET timer_started_at=?, updated_at=? WHERE id=?", (now_s(), now_s(), wid))
+            if wo["status"] in ("inlamnad",):
+                db.execute("UPDATE work_orders SET status='felsokning' WHERE id=?", (wid,))
+                db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                           (wid, now_s(), f"Status: {WO_STATUS_LABEL['felsokning']}."))
+            flash("Timern går.")
+    return redirect(_back_url(wid))
+
+
+def _back_url(wid):
+    back = request.form.get("back") or request.args.get("back")
+    return {"tavla": url_for("board"), "oversikt": url_for("dashboard")}.get(back, url_for("wo_detail", wid=wid))
 
 
 @app.route("/admin/ao/<int:wid>/status", methods=["POST"])
@@ -944,11 +1468,13 @@ def wo_set_status(wid):
     if new not in WO_STATUS_LABEL:
         abort(400)
     if new == "offert" and wo["price_quote"] is None:
-        flash("Ange ett offertbelopp och spara innan du skickar offerten.", "error")
-        return redirect(url_for("wo_detail", wid=wid))
+        flash("Ange offertbelopp och spara – sedan skickar du offerten härifrån.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#pris")
     msg = clean(request.form.get("message"), 2000)
     db = get_db()
     with db:
+        if new in ("klar", "utlamnad", "avbruten", "vantar_delar") and wo["timer_started_at"]:
+            stop_timer(db, wo)
         db.execute("UPDATE work_orders SET status=?, updated_at=?, closed_at=? WHERE id=?",
                    (new, now_s(), now_s() if new in ("utlamnad", "avbruten") else None, wid))
         text = f"Status: {WO_STATUS_LABEL[new]}." + (f" {msg}" if msg else "")
@@ -957,18 +1483,35 @@ def wo_set_status(wid):
         db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
                    (wid, now_s(), text))
         touch_customer(db, wo["customer_id"])
-    if request.form.get("notify") and wo["customer_email"]:
+    if request.form.get("notify") and wo["customer_email"] and mail_enabled():
         s = settings()
         link = f"{base_url()}{url_for('status', token=wo['token'])}"
-        extra = {"offert": f"Vi har en offert på {fmt_money(wo['price_quote'])}. Godkänn den via länken nedan.",
-                 "klar": "Din reparation är klar och kan hämtas."}.get(new, "")
-        send_mail(wo["customer_email"], f"{wo['number']}: {WO_STATUS_LABEL[new]} – {s['business_name']}",
-                  f"Hej {wo['customer_name']}!\n\n{wo['item']}: {WO_STATUS_LABEL[new]}.\n{extra}\n{msg}\n\n"
-                  f"Följ ärendet: {link}\n\n{s['business_name']}")
-        flash("Status uppdaterad och kunden meddelad.")
+        name = wo["customer_name"]
+        if new == "offert":
+            heading, paras = "Vi har en offert till dig", [
+                f"Hej {name}! Vi har gått igenom {wo['item']}.",
+                (wo["diagnosis"] or "") + f" Pris: {fmt_money(wo['price_quote'])}.",
+                "Godkänn med ett klick så sätter vi igång."]
+            button = ("Visa och godkänn offerten", link)
+        elif new == "klar":
+            heading, paras = "Klart för hämtning!", [
+                f"Hej {name}! {wo['item']} är klar och kan hämtas."
+                + (f" Öppettider: {opening_hours_text()}." if opening_hours_text() else "")]
+            button = ("Visa ärendet och kostnad", link)
+        else:
+            heading, paras = f"{wo['item']}: {WO_STATUS_LABEL[new]}", [f"Hej {name}! Status för ditt ärende har uppdaterats."]
+            button = ("Följ ärendet", link)
+        if msg:
+            paras.append(msg)
+        details = [("Ärende", wo["number"]), ("Status", WO_STATUS_LABEL[new])]
+        if s.get("address") and new == "klar":
+            details.append(("Adress", s["address"]))
+        mail_customer(wo["customer_email"], f"{wo['number']}: {WO_STATUS_LABEL[new]} – {s['business_name']}",
+                      f"status_{new}", heading=heading, paragraphs=paras, details=details, button=button)
+        flash(f"{wo['number']}: {WO_STATUS_SHORT[new]} – kunden har fått e-post.")
     else:
-        flash("Status uppdaterad.")
-    return redirect(url_for("wo_detail", wid=wid))
+        flash(f"{wo['number']}: {WO_STATUS_SHORT[new]}.")
+    return redirect(_back_url(wid))
 
 
 @app.route("/admin/ao/<int:wid>/handelse", methods=["POST"])
@@ -993,9 +1536,15 @@ def wo_add_line(wid):
         flash("Antal måste vara större än noll.", "error")
         return redirect(url_for("wo_detail", wid=wid) + "#rader")
     pid = to_int(f.get("part_id"))
+    sid = to_int(f.get("service_id"))
     db = get_db()
     with db:
-        if pid:
+        if sid:
+            svc = db.execute("SELECT * FROM services WHERE id=?", (sid,)).fetchone() or abort(404)
+            price = to_float(f.get("unit_price")) if clean(f.get("unit_price")) else (svc["price_from"] or 0)
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
+                       "VALUES (?,?,?,?,?,?)", (wid, None, svc["name"], qty, price, now_s()))
+        elif pid:
             p = db.execute("SELECT * FROM parts WHERE id=?", (pid,)).fetchone() or abort(404)
             price = to_float(f.get("unit_price"), p["unit_price"]) if clean(f.get("unit_price")) else p["unit_price"]
             db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
@@ -1336,27 +1885,80 @@ def labels():
 @app.route("/admin/installningar", methods=["GET", "POST"])
 @login_required
 def settings_page():
-    editable = [k for k in DEFAULT_SETTINGS if k != "calendar_token"]
     if request.method == "POST":
+        section = request.form.get("section")
+        if section:
+            keys = SETTINGS_SECTIONS.get(section, [])
+        else:  # äldre helformulär
+            keys = [k for sec in SETTINGS_SECTIONS.values() for k in sec]
         db = get_db()
         with db:
-            for k in editable:
-                if k == "booking_enabled":
+            for k in keys:
+                if k in CHECKBOX_SETTINGS:
                     val = "1" if request.form.get(k) else "0"
                 elif k == "open_days":
+                    if section != "bokning" and k not in request.form:
+                        continue
                     val = ",".join(d for d in request.form.getlist(k) if d.isdigit())
+                elif k not in request.form:
+                    continue
+                elif k == "smtp_password" and not request.form.get(k):
+                    continue  # tomt fält = behåll sparat lösenord
                 else:
                     val = clean(request.form.get(k), 3000)
                     if k == "public_url":
                         val = val.rstrip("/")
+                    elif k == "accent_color":
+                        val = safe_color(val)
                 db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES (?,?)", (k, val))
             if request.form.get("new_calendar_token"):
                 db.execute("UPDATE settings SET value=? WHERE key='calendar_token'", (secrets.token_urlsafe(24),))
+            if request.form.get("new_api_key"):
+                db.execute("UPDATE settings SET value=? WHERE key='api_key'", (secrets.token_urlsafe(32),))
         flash("Inställningarna är sparade.")
-        return redirect(url_for("settings_page"))
+        return redirect(url_for("settings_page") + (f"#{section}" if section else ""))
     backups = sorted(os.listdir(BACKUP_DIR), reverse=True)[:10] if os.path.isdir(BACKUP_DIR) else []
+    env_mail = [k for k in MAIL_KEYS if os.environ.get(k.upper())]
     return render_template("admin/settings.html", mail=mail_enabled(), backups=backups,
-                           days=list(enumerate(SV_DAYS, start=1)))
+                           days=list(enumerate(SV_DAYS, start=1)), env_mail=env_mail,
+                           api_base=f"{base_url()}/api/v1",
+                           cal_url=f"{base_url()}/kalender/{settings()['calendar_token']}.ics")
+
+
+SETTINGS_SECTIONS = {
+    "verkstad": ["business_name", "tagline", "address", "contact_email", "contact_phone", "public_url",
+                 "labor_rate", "categories", "accent_color", "retention_months"],
+    "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "booking_intro", "response_promise",
+                "open_days", "open_from", "open_to", "slot_minutes", "slot_capacity", "days_ahead",
+                "min_notice_hours", "blocked_dates"],
+    "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
+    "api": ["api_cors_origin"],
+}
+CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled"}
+
+
+@app.route("/admin/epost/test", methods=["POST"])
+@login_required
+def mail_test():
+    to = clean(request.form.get("to"), 200) or mail_config()["notify_email"]
+    if not to:
+        flash("Ange en mottagare för testmejlet.", "error")
+        return redirect(url_for("settings_page") + "#epost")
+    text, html = render_mail("Testmejl", ["Det här är ett testmejl. E-posten fungerar!"],
+                             details=[("Server", mail_config()["smtp_host"]), ("Skickat", fmt_dt(now()))])
+    ok, err = send_mail(to, f"Testmejl – {settings()['business_name']}", text, html, kind="test", sync=True)
+    if ok:
+        flash(f"Testmejl skickat till {to}. Kolla inkorgen (och skräpposten).")
+    else:
+        flash(f"Kunde inte skicka: {err}", "error")
+    return redirect(url_for("settings_page") + "#epost")
+
+
+@app.route("/admin/epost")
+@login_required
+def mail_log_page():
+    return render_template("admin/mail_log.html",
+                           rows=q("SELECT * FROM mail_log ORDER BY id DESC LIMIT 200"), mail=mail_enabled())
 
 
 def make_backup():
@@ -1406,6 +2008,152 @@ def _backup_loop():
         time.sleep(3600)
 
 
+# ---------------------------------------------------------------------------
+# Läs-API (för hemskärm/hubb). Nyckel i Authorization: Bearer <nyckel> eller X-API-Key.
+# ---------------------------------------------------------------------------
+def short_name(name):
+    parts = (name or "").split()
+    if not parts:
+        return ""
+    return parts[0] + (f" {parts[-1][0]}." if len(parts) > 1 else "")
+
+
+def api_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if rate_limited(f"api:{client_ip()}", 240, 60):
+            return {"error": "rate_limited"}, 429
+        auth = request.headers.get("Authorization", "")
+        key = auth[7:].strip() if auth.lower().startswith("bearer ") else request.headers.get("X-API-Key", "")
+        expected = settings().get("api_key") or ""
+        if not key or not expected or not secrets.compare_digest(key, expected):
+            return {"error": "unauthorized"}, 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.after_request
+def api_cors(resp):
+    if request.path.startswith("/api/"):
+        origin = settings().get("api_cors_origin") or ""
+        if origin:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Headers"] = "Authorization, X-API-Key"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+            resp.headers["Vary"] = "Origin"
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/v1/<path:_any>", methods=["OPTIONS"])
+def api_preflight(_any):
+    return Response(status=204)
+
+
+def _api_booking(b):
+    return {"id": b["id"], "start": b["slot_start"], "start_text": fmt_dt(b["slot_start"]), "status": b["status"],
+            "status_label": BOOKING_STATUSES.get(b["status"], b["status"]), "category": b["category"],
+            "item": b["item"], "service": b["service_name"], "customer": short_name(b["name"])}
+
+
+def _api_wo(w):
+    return {"id": w["id"], "number": w["number"], "item": w["item"], "category": w["category"],
+            "status": w["status"], "status_label": WO_STATUS_SHORT.get(w["status"], w["status"]),
+            "customer": short_name(w["customer_name"]), "created_at": w["created_at"], "updated_at": w["updated_at"],
+            "due_date": w["due_date"], "overdue": bool(w["due_date"] and w["due_date"] < now().strftime("%Y-%m-%d")),
+            "timer_running": bool(w["timer_started_at"]), "age_days": minutes_since(w["created_at"]) // 1440,
+            "admin_url": f"{base_url()}/admin/ao/{w['id']}"}
+
+
+BOOKING_SQL = ("SELECT b.*, c.name, s.name service_name FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id "
+               "LEFT JOIN services s ON s.id=b.service_id ")
+WO_SQL = "SELECT w.*, c.name customer_name FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id "
+
+
+@app.route("/api/v1/summary")
+@api_required
+def api_summary():
+    today = now().strftime("%Y-%m-%d")
+    tomorrow = (now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    week = (now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    counts = {k: 0 for k in WO_OPEN}
+    for r in q(f"SELECT status, COUNT(*) c FROM work_orders WHERE status IN ({','.join('?' * len(WO_OPEN))}) "
+               f"GROUP BY status", WO_OPEN):
+        counts[r["status"]] = r["c"]
+    nxt = q(BOOKING_SQL + "WHERE b.status IN ('ny','bekraftad') AND b.slot_start >= ? ORDER BY b.slot_start LIMIT 1",
+            (now().strftime("%Y-%m-%dT%H:%M"),), one=True)
+    month_start = now().strftime("%Y-%m-01")
+    closed = q("SELECT * FROM work_orders WHERE status='utlamnad' AND closed_at >= ?", (month_start,))
+    revenue = sum(wo_totals(w, q("SELECT * FROM wo_lines WHERE work_order_id=?", (w["id"],)))["total"] for w in closed)
+    return {
+        "business": settings()["business_name"], "generated_at": now().isoformat(), "version": VERSION,
+        "work_orders": {"open": sum(counts.values()), "by_status": counts,
+                        "status_labels": {k: WO_STATUS_SHORT[k] for k in WO_OPEN},
+                        "ready_for_pickup": counts["klar"], "awaiting_customer": counts["offert"],
+                        "timers_running": q("SELECT COUNT(*) c FROM work_orders WHERE timer_started_at IS NOT NULL",
+                                            one=True)["c"],
+                        "overdue": q(f"SELECT COUNT(*) c FROM work_orders WHERE status IN ({','.join('?' * len(WO_OPEN))}) "
+                                     f"AND due_date IS NOT NULL AND due_date <> '' AND due_date < ?",
+                                     (*WO_OPEN, today), one=True)["c"]},
+        "bookings": {"today": q("SELECT COUNT(*) c FROM bookings WHERE status IN ('ny','bekraftad','konverterad') "
+                                "AND slot_start >= ? AND slot_start < ?", (today, tomorrow), one=True)["c"],
+                     "next_7_days": q("SELECT COUNT(*) c FROM bookings WHERE status IN ('ny','bekraftad') "
+                                      "AND slot_start >= ? AND slot_start < ?", (today, week), one=True)["c"],
+                     "pending_confirmation": q("SELECT COUNT(*) c FROM bookings WHERE status='ny'", one=True)["c"],
+                     "next": _api_booking(nxt) if nxt else None},
+        "stock": {"low": q("SELECT COUNT(*) c FROM parts WHERE active=1 AND min_qty > 0 AND qty <= min_qty",
+                           one=True)["c"]},
+        "month": {"delivered": len(closed), "revenue": revenue},
+    }
+
+
+@app.route("/api/v1/bookings")
+@api_required
+def api_bookings():
+    days = min(60, max(1, to_int(request.args.get("days"), 7)))
+    start = now().strftime("%Y-%m-%d")
+    end = (now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = q(BOOKING_SQL + "WHERE b.status IN ('ny','bekraftad','konverterad') AND b.slot_start >= ? AND b.slot_start < ? "
+             "ORDER BY b.slot_start", (start, end))
+    return {"bookings": [_api_booking(b) for b in rows], "days": days}
+
+
+@app.route("/api/v1/work-orders")
+@api_required
+def api_work_orders():
+    st = request.args.get("status", "open")
+    if st == "open":
+        rows = q(WO_SQL + f"WHERE w.status IN ({','.join('?' * len(WO_OPEN))}) ORDER BY w.updated_at DESC", WO_OPEN)
+    elif st in WO_STATUS_LABEL:
+        rows = q(WO_SQL + "WHERE w.status=? ORDER BY w.updated_at DESC LIMIT 100", (st,))
+    else:
+        return {"error": "unknown_status"}, 400
+    return {"work_orders": [_api_wo(w) for w in rows]}
+
+
+@app.route("/api/v1/low-stock")
+@api_required
+def api_low_stock():
+    rows = q("SELECT p.*, l.name loc FROM parts p LEFT JOIN locations l ON l.id=p.location_id "
+             "WHERE p.active=1 AND p.min_qty > 0 AND p.qty <= p.min_qty ORDER BY p.name")
+    return {"parts": [{"id": p["id"], "name": p["name"], "sku": p["sku"], "qty": p["qty"], "min_qty": p["min_qty"],
+                       "unit": p["unit"], "location": p["loc"], "supplier": p["supplier"]} for p in rows]}
+
+
+def _reminder_loop():
+    while True:
+        time.sleep(600)
+        try:
+            with app.app_context():
+                base = settings().get("public_url") or "http://localhost"
+            with app.test_request_context(base_url=base):
+                n = send_due_reminders()
+                if n:
+                    log.info("Skickade %d påminnelser", n)
+        except Exception:  # noqa: BLE001
+            log.exception("Påminnelser misslyckades")
+
+
 @app.errorhandler(400)
 @app.errorhandler(403)
 @app.errorhandler(404)
@@ -1418,6 +2166,8 @@ def http_error(err):
 init_db()
 if os.environ.get("BACKUP_ENABLED", "1") == "1" and not app.config.get("TESTING"):
     threading.Thread(target=_backup_loop, daemon=True).start()
+if os.environ.get("BACKGROUND_JOBS", "1") == "1":
+    threading.Thread(target=_reminder_loop, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="sv">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>{{ heading }}</title></head>
+<body style="margin:0;padding:0;background:#f4f3ef;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#18181a;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;">{{ preheader }}</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f3ef;padding:24px 12px;">
+<tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+    <tr><td style="padding:4px 4px 16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        <td style="width:36px;height:36px;border-radius:10px;background:{{ accent }};color:#fff;text-align:center;font-weight:700;font-size:16px;line-height:36px;">{{ S.business_name[:1] }}</td>
+        <td style="padding-left:10px;font-weight:700;font-size:16px;">{{ S.business_name }}</td>
+      </tr></table>
+    </td></tr>
+    <tr><td style="background:#ffffff;border:1px solid #e6e4de;border-radius:14px;padding:28px 28px 24px;">
+      <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;letter-spacing:-0.01em;">{{ heading }}</h1>
+      {% for p in paragraphs if p %}<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#3f3f46;">{{ p }}</p>{% endfor %}
+      {% if details %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 4px;background:#faf9f6;border:1px solid #e6e4de;border-radius:10px;">
+        {% for k, v in details %}
+        <tr><td style="padding:10px 14px;font-size:13px;color:#71717a;width:90px;vertical-align:top;{{ '' if loop.first else 'border-top:1px solid #eeece6;' }}">{{ k }}</td>
+            <td style="padding:10px 14px;font-size:14px;font-weight:600;color:#18181a;{{ '' if loop.first else 'border-top:1px solid #eeece6;' }}">{{ v }}</td></tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+      {% if button %}
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 6px;"><tr><td style="border-radius:10px;background:{{ accent }};">
+        <a href="{{ button[1] }}" style="display:inline-block;padding:13px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">{{ button[0] }}</a>
+      </td></tr></table>
+      {% endif %}
+      {% for label, url in links %}<p style="margin:8px 0 0;font-size:14px;"><a href="{{ url }}" style="color:{{ accent }};">{{ label }}</a></p>{% endfor %}
+      {% if note %}<p style="margin:16px 0 0;font-size:13px;color:#71717a;">{{ note }}</p>{% endif %}
+    </td></tr>
+    <tr><td style="padding:16px 8px;text-align:center;font-size:12px;line-height:1.6;color:#8a8a92;">
+      <strong style="color:#52525b;">{{ S.business_name }}</strong>{% if S.address %} · {{ S.address }}{% endif %}<br>
+      {% if hours %}Öppet {{ hours }}{% endif %}{% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}{% if S.contact_email %} · <a href="mailto:{{ S.contact_email }}" style="color:#8a8a92;">{{ S.contact_email }}</a>{% endif %}
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

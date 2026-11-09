@@ -1,13 +1,15 @@
-{% extends "public/_layout.html" %}
-{% block title %}Logga in{% endblock %}
-{% block content %}
-<div class="public-head"><h1>{{ S.business_name }}</h1></div>
-<form method="post" class="card">
-  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-  <input type="hidden" name="next" value="{{ next }}">
-  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
-  <label for="u">Användarnamn</label><input id="u" type="text" name="username" autocomplete="username" required autofocus>
-  <label for="p">Lösenord</label><input id="p" type="password" name="password" autocomplete="current-password" required>
-  <p><button>Logga in</button></p>
-</form>
+{% extends "base.html" %}
+{% block title %}Logga in – {{ S.business_name }}{% endblock %}
+{% block body %}
+<main class="auth">
+  <form method="post" class="card">
+    <a class="brand" href="{{ url_for('book') }}"><span class="brand-mark">{{ icon('wrench') }}</span><span>{{ S.business_name }}<small>Logga in</small></span></a>
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    {% if error %}<div class="flash error">{{ icon('alert') }}<span>{{ error }}</span></div>{% endif %}
+    <label for="u">Användarnamn</label><input id="u" type="text" name="username" autocomplete="username" required autofocus>
+    <label for="p">Lösenord</label><input id="p" type="password" name="password" autocomplete="current-password" required>
+    <p class="mt mb0"><button class="block lg">Logga in</button></p>
+  </form>
+</main>
 {% endblock %}

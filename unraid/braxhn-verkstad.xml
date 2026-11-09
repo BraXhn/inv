@@ -13,7 +13,7 @@
   <Config Name="Web-port" Target="8080" Default="8080" Mode="tcp" Description="Port för webbgränssnittet" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/verkstad" Mode="rw" Description="Databas, backuper och nycklar" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/verkstad</Config>
   <Config Name="Admin-användare" Target="ADMIN_USER" Default="admin" Mode="" Description="Användarnamn för admin" Type="Variable" Display="always" Required="true" Mask="false">admin</Config>
-  <Config Name="Admin-lösenord" Target="ADMIN_PASSWORD" Default="" Mode="" Description="Långt unikt lösenord (minst 16 tecken)" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Admin-lösenord" Target="ADMIN_PASSWORD" Default="" Mode="" Description="Unikt lösenord (minst 8 tecken)" Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="Publik adress" Target="PUBLIC_URL" Default="https://verkstad.dindoman.se" Mode="" Description="Adressen via Cloudflare Tunnel. Används i NFC-taggar, QR och e-post." Type="Variable" Display="always" Required="true" Mask="false"></Config>
   <Config Name="Tidszon" Target="TZ" Default="Europe/Stockholm" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Stockholm</Config>
   <Config Name="SMTP-server" Target="SMTP_HOST" Default="" Mode="" Description="Valfritt. T.ex. smtp.gmail.com" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>

@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/_shell.html" %}
 {% from "admin/_macros.html" import csrf %}
 {% block title %}Ny arbetsorder{% endblock %}
 {% block content %}
-<h1>Ny arbetsorder</h1>
+<div class="page-head"><div><h1>Ny inlämning</h1><div class="sub">Telefon eller e-post som redan finns kopplas automatiskt till befintlig kund.</div></div></div>
 <form method="post" class="card">
   {{ csrf() }}
   <h2>Kund</h2>
@@ -20,6 +20,9 @@
   <h2 class="mt">Objekt</h2>
   <div class="fields">
     <div><label for="category">Typ</label><select id="category" name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>
+    <div><label for="service_id">Tjänst</label><select id="service_id" name="service_id"><option value="">– Ingen / felsökning –</option>
+      {% for c in categories %}<optgroup label="{{ c }}">{% for sv in services if sv.category == c %}<option value="{{ sv.id }}">{{ sv.name }}{% if sv.price_from is not none %} – {{ sv.price_from|money }}{% endif %}</option>{% endfor %}</optgroup>{% endfor %}
+    </select></div>
     <div><label for="item">Märke och modell</label><input id="item" type="text" name="item" maxlength="200" required></div>
     <div><label for="serial">Ram-/serienummer</label><input id="serial" type="text" name="serial" maxlength="100"></div>
     <div><label for="due_date">Utlovat klart</label><input id="due_date" type="date" name="due_date"></div>

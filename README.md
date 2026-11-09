@@ -2,6 +2,17 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 2.0
+- **Bokning på under en minut.** Kunden väljer typ, tjänst med pris och dag i en datumremsa, och ser en sammanfattning med knappen alltid synlig. Bekräftelsen kan ske automatiskt.
+- **Tavla** med en kolumn per status. Ärenden flyttas med en knapptryckning, och kunden mejlas automatiskt vid offert och när det är klart.
+- **Arbetstimer** per ärende som startar och stoppar med ett tryck. Tiden läggs på ärendet och stoppas automatiskt när ärendet blir klart.
+- **Knappar för nästa steg** på varje ärende, till exempel "Skicka offert" eller "Markera klar", istället för en rullista.
+- **Global sökning** (snabbtangent `/`). Ett ärendenummer eller en taggkod tar dig direkt till rätt sida.
+- **Tjänster och priser** som visas på bokningssidan. Tjänster med fast pris läggs automatiskt på ärendet.
+- **E-post med egen layout** i HTML och text. Bekräftelsen har en kalenderfil bifogad, kunden får påminnelse dagen före, och det finns offert- och klartmejl, notiser till dig, en knapp för testmejl och en logg över alla utskick.
+- **Läs-API** för hemskärmar, till exempel Rasp-hemma-hub.
+- **Ny design** med sidomeny på datorn, bottenmeny i mobilen, mörkt läge och valfri accentfärg. Admin kan installeras som app på hemskärmen.
+
 ## Vad den gör
 
 **För kunden (publikt)**
@@ -64,6 +75,25 @@ Bokningen ska vara öppen för alla, men admin ska ha två lås: appens eget lö
 
 Etikettarken under **Platser → Etiketter** ger en QR-kod med samma länk. Då fungerar även telefoner utan NFC.
 
+## E-post
+Fyll i SMTP-uppgifterna under **Inställningar → E-post** och klicka **Skicka testmejl**.
+- **Gmail:** server `smtp.gmail.com`, port `587`, ditt Gmail-konto som användare och ett *applösenord* som lösenord (Google-konto → Säkerhet → Applösenord, kräver tvåstegsverifiering).
+- **Egen domän** via t.ex. one.com, Loopia eller Fastmail fungerar likadant. Lägg till SPF/DKIM hos din domänleverantör för bättre leverans.
+- Alla utskick loggas under **E-postlogg**, inklusive felmeddelanden.
+- Miljövariablerna `SMTP_*` i Unraid vinner över inställningarna i appen.
+
+## API (läs)
+Nyckeln finns under **Inställningar → API**. Skicka den som `Authorization: Bearer <nyckel>` eller `X-API-Key: <nyckel>`.
+
+| Endpoint | Innehåll |
+|---|---|
+| `GET /api/v1/summary` | Antal öppna ärenden per status, klara för hämtning, offerter ute, timers, försenade, bokningar idag och närmaste 7 dagar, nästa bokning, lågt lager, månadens intäkt |
+| `GET /api/v1/bookings?days=7` | Kommande bokningar |
+| `GET /api/v1/work-orders?status=open` | Öppna ärenden (eller en specifik status) |
+| `GET /api/v1/low-stock` | Delar under beställningspunkten |
+
+API:et visar bara förnamn och initial, aldrig e-post eller telefon. Anropa det från LAN (`http://<unraid-ip>:8080/api/v1/...`), så slipper du Cloudflare Access. Fältet CORS behövs bara om en webbläsare anropar API:et direkt.
+
 ## Säkerhet i appen
 - CSRF-skydd på alla formulär, strikt CSP (inga externa skript eller inline-skript), `X-Frame-Options: DENY` och `no-store` på känsliga sidor.
 - Begränsning av inloggning (8 försök per 15 min och IP), honeypot och rate limiting på bokningen.
@@ -96,3 +126,5 @@ pip install -r requirements.txt
 python tests/test_flows.py          # end-to-end-test av alla flöden
 DATA_DIR=./data ADMIN_PASSWORD=dev python app/app.py
 ```
+
+Ikonen *wrench* kommer från [Lucide](https://lucide.dev) (ISC-licens).

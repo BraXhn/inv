@@ -1,62 +1,96 @@
 {% extends "public/_layout.html" %}
-{% block title %}Status – {{ S.business_name }}{% endblock %}
+{% block title %}Din bokning – {{ S.business_name }}{% endblock %}
 {% block content %}
-<div class="public-head"><h1>{{ S.business_name }}</h1></div>
-
-{% if is_new %}
-<div class="flash">Tack! Din bokningsförfrågan är mottagen. Spara den här sidan som bokmärke – här ser du alltid aktuell status.</div>
-{% endif %}
+<header class="hero">
+  <div class="logo">{{ icon('wrench') }}</div>
+  <h1>{{ S.business_name }}</h1>
+</header>
 
 {% if wo %}
-  {% set order = ['inlamnad','felsokning','offert','vantar_delar','pagar','klar','utlamnad'] %}
-  {% set idx = order.index(wo.status) if wo.status in order else -1 %}
-  <div class="card">
-    <div class="spread"><h2>{{ wo.item }}</h2><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span></div>
-    <p class="muted small">Ärende {{ wo.number }} · inlämnad {{ wo.created_at|d }}</p>
-    {% if idx >= 0 %}<div class="steps" aria-hidden="true">{% for s in order %}<span class="{{ 'done' if loop.index0 <= idx }}"></span>{% endfor %}</div>{% endif %}
-
-    {% if wo.status == 'offert' %}
-      <div class="card">
-        <h3>Offert: {{ wo.price_quote|money }}</h3>
-        {% if wo.diagnosis %}<p>{{ wo.diagnosis }}</p>{% endif %}
-        <form method="post" action="{{ url_for('approve_quote', token=token) }}">
-          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-          <button data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">Godkänn offerten</button>
-        </form>
-        <p class="small muted">Vill du inte gå vidare? Kontakta oss{% if S.contact_phone %} på {{ S.contact_phone }}{% endif %}.</p>
-      </div>
+  {% set order = ['inlamnad','felsokning','pagar','klar','utlamnad'] %}
+  {% set pos = {'inlamnad':0,'felsokning':1,'offert':1,'vantar_delar':2,'pagar':2,'klar':3,'utlamnad':4}.get(wo.status, -1) %}
+  <section class="step">
+    <div class="spread">
+      <div><div class="muted small">Ärende {{ wo.number }}</div><h2 class="mb0">{{ wo.item }}</h2></div>
+      <span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>
+    </div>
+    {% if pos >= 0 %}
+    <div class="progress" aria-hidden="true">{% for s in order %}<span class="{{ 'done' if loop.index0 <= pos }}"></span>{% endfor %}</div>
+    <div class="progress-labels"><span>Inlämnad</span><span>Felsökning</span><span>Reparation</span><span>Klar</span><span>Hämtad</span></div>
     {% endif %}
+  </section>
 
-    {% if wo.status == 'klar' %}<div class="flash">Klart! Du kan hämta {{ wo.item }}{% if S.address %} på {{ S.address }}{% endif %}.</div>{% endif %}
+  {% if wo.status == 'offert' %}
+  <section class="step card accent">
+    <div class="step-head"><span class="step-num">{{ icon('tag') }}</span><h2>Offert: {{ wo.price_quote|money }}</h2></div>
+    {% if wo.diagnosis %}<p>{{ wo.diagnosis }}</p>{% endif %}
+    <form method="post" action="{{ url_for('approve_quote', token=token) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="lg block" data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">{{ icon('check') }} Godkänn och starta reparationen</button>
+    </form>
+    <p class="help center mt">Vill du inte gå vidare? {% if S.contact_phone %}Ring <a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% else %}Kontakta oss{% endif %} så löser vi det.</p>
+  </section>
+  {% endif %}
 
-    {% if lines or totals.labor %}
-    <h3>Kostnad hittills</h3>
+  {% if wo.status == 'klar' %}
+  <section class="step card accent">
+    <div class="success"><div class="ring">{{ icon('check') }}</div><h2>Klart för hämtning!</h2>
+    <p class="muted mb0">{{ S.address }}</p></div>
+  </section>
+  {% endif %}
+
+  {% if lines or totals.labor %}
+  <section class="step">
+    <h2>Kostnad</h2>
     <table>
-      {% for l in lines %}<tr><td>{{ l.description }}</td><td class="right nowrap">{{ l.qty|qty }} × {{ l.unit_price|money }}</td></tr>{% endfor %}
-      {% if totals.labor %}<tr><td>Arbete ({{ '%.1f'|format(totals.hours)|replace('.', ',') }} h)</td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
+      {% for l in lines %}<tr><td>{{ l.description }}{% if l.qty != 1 %} <span class="muted">× {{ l.qty|qty }}</span>{% endif %}</td><td class="right nowrap">{{ (l.qty * l.unit_price)|money }}</td></tr>{% endfor %}
+      {% if totals.labor %}<tr><td>Arbete <span class="muted">{{ '%.1f'|format(totals.hours)|replace('.', ',') }} h</span></td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
       <tr class="sum"><th>Totalt</th><th class="right">{{ totals.total|money }}</th></tr>
     </table>
-    {% endif %}
+  </section>
+  {% endif %}
 
-    {% if events %}
-    <h3>Händelser</h3>
-    <ul class="timeline">{% for e in events %}<li><span class="small muted">{{ e.created_at|dt }}</span><br>{{ e.text }}</li>{% endfor %}</ul>
-    {% endif %}
-  </div>
+  {% if events %}
+  <section class="step">
+    <h2>Händelser</h2>
+    <ul class="timeline">{% for e in events %}<li><div class="xs muted">{{ e.created_at|dt }}</div>{{ e.text }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
 {% elif booking %}
-  <div class="card">
-    <div class="spread"><h2>Bokning</h2><span class="pill {{ booking.status }}">{{ BOOKING_STATUSES[booking.status] }}</span></div>
-    <p><b>{{ booking.slot_start|dt }}</b></p>
-    <p>{{ booking.category }} – {{ booking.item }}</p>
-    {% if booking.status == 'ny' %}<p class="muted">Vi bekräftar tiden så snart vi kan.</p>{% endif %}
-    {% if booking.status == 'bekraftad' %}<p>Välkommen{% if S.address %} till {{ S.address }}{% endif %}!</p>{% endif %}
-    {% if booking.status in ('ny', 'bekraftad') %}
-    <form method="post" action="{{ url_for('cancel_booking', token=token) }}">
-      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-      <button class="danger small" data-confirm="Vill du avboka tiden?">Avboka</button>
-    </form>
-    {% endif %}
-    {% if booking.status in ('avbojd', 'avbokad') %}<p><a class="btn" href="{{ url_for('book') }}">Boka en ny tid</a></p>{% endif %}
+  {% if is_new %}
+  <div class="success">
+    <div class="ring">{{ icon('check') }}</div>
+    <h1>{{ 'Din tid är bokad!' if booking.status == 'bekraftad' else 'Tack – vi har fått din bokning!' }}</h1>
+    <p class="muted">{% if booking.status == 'bekraftad' %}Bekräftelse är skickad till din e-post.{% else %}{{ S.response_promise }}{% endif %} Spara gärna den här sidan.</p>
   </div>
+  {% endif %}
+  <section class="step">
+    <div class="spread"><h2 class="mb0">Din bokning</h2><span class="pill {{ booking.status }}">{{ 'Bekräftad' if booking.status == 'bekraftad' else BOOKING_STATUSES[booking.status] }}</span></div>
+    <dl class="kv mt">
+      <dt>Tid</dt><dd>{{ booking.slot_start|dt }}</dd>
+      <dt>Gäller</dt><dd>{{ booking.category }} – {{ booking.item }}</dd>
+      {% if service %}<dt>Tjänst</dt><dd>{{ service.name }}</dd>{% endif %}
+      {% if S.address %}<dt>Adress</dt><dd>{{ S.address }}</dd>{% endif %}
+    </dl>
+    {% if booking.status in ('ny', 'bekraftad') %}
+    <div class="actions mt">
+      <a class="btn" href="{{ url_for('booking_ics', token=token) }}">{{ icon('calendar') }} Lägg till i kalendern</a>
+      <form method="post" action="{{ url_for('cancel_booking', token=token) }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="danger" data-confirm="Vill du avboka tiden?">Avboka</button>
+      </form>
+    </div>
+    {% endif %}
+    {% if booking.status in ('avbojd', 'avbokad') %}<p class="mt"><a class="btn" href="{{ url_for('book') }}">Boka en ny tid</a></p>{% endif %}
+  </section>
+  <section class="step">
+    <h2>Så går det till</h2>
+    <ol class="small muted mb0">
+      <li>Lämna in på din bokade tid. Ta med laddare, nyckel eller tillbehör.</li>
+      <li>Vi felsöker och skickar en offert hit och till din e-post innan vi reparerar.</li>
+      <li>Du följer allt på den här sidan och får besked när det är klart.</li>
+    </ol>
+  </section>
 {% endif %}
 {% endblock %}

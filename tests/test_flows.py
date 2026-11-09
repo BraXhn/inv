@@ -60,7 +60,7 @@ def test_everything():
     r = pub.post("/boka", data=form)
     assert r.status_code == 302 and "/s/" in r.headers["Location"], r.get_data(as_text=True)[:500]
     status_path = r.headers["Location"].split("?")[0]
-    assert "Bokning" in pub.get(status_path).get_data(as_text=True)
+    assert "Din bokning" in pub.get(status_path).get_data(as_text=True)
 
     # Samma tid ska inte kunna dubbelbokas (kapacitet 1)
     tok = csrf(pub, "/boka")
@@ -135,7 +135,7 @@ def test_everything():
                                        "location_id": lid})
     adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "offert", "message": ""})
     page = pub.get(status_path).get_data(as_text=True)
-    assert "Godkänn offerten" in page and "1 100 kr" in page
+    assert "Godkänn och starta" in page and "1 100 kr" in page
     ptok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
     wo_token = verkstad.connect().execute("SELECT token FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
     assert pub.post(f"/s/{wo_token}/godkann", data={"_csrf": ptok}).status_code == 302
@@ -209,8 +209,140 @@ def test_everything():
     r = c2.post("/login", data={"_csrf": t, "username": "admin", "password": "hemligt123",
                                 "next": "//evil.example.com"}, environ_base={"REMOTE_ADDR": "10.9.9.9"})
     assert r.headers["Location"].endswith("/admin"), r.headers["Location"]
-    print("ALLA TESTER OK")
+
+
+
+def test_v2():
+    """Tjänster, autobekräftelse, e-post, påminnelser, timer, tavla, sök och API."""
+    import time as _t
+    verkstad._rl_hits.clear()  # nollställ inloggningsspärren från förra testet
+    sent = []
+    verkstad._deliver = lambda cfg, msg: sent.append(msg)  # fångar e-post istället för SMTP
+    adm = login(A.test_client())
+    pub = A.test_client()
+    set_open_all_days(adm)
+    tok = csrf(adm, "/admin/installningar")
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "epost", "smtp_host": "smtp.test",
+                                           "smtp_port": "587", "smtp_user": "u", "smtp_password": "p",
+                                           "smtp_from": "verkstad@test.se", "notify_email": "agare@test.se"})
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "bokning", "booking_enabled": "1",
+                                           "auto_confirm": "1", "reminder_enabled": "1",
+                                           "open_days": ["1", "2", "3", "4", "5", "6", "7"], "open_from": "08:00",
+                                           "open_to": "22:00", "slot_minutes": "60", "slot_capacity": "1",
+                                           "days_ahead": "14", "min_notice_hours": "0"})
+    db = verkstad.connect()
+    assert db.execute("SELECT value FROM settings WHERE key='smtp_user'").fetchone()[0] == "u"
+    assert db.execute("SELECT value FROM settings WHERE key='booking_enabled'").fetchone()[0] == "1"
+    # Tomt lösenordsfält ska behålla sparat lösenord
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "epost", "smtp_host": "smtp.test",
+                                           "smtp_password": ""})
+    assert verkstad.connect().execute("SELECT value FROM settings WHERE key='smtp_password'").fetchone()[0] == "p"
+
+    # Tjänst med fast pris
+    adm.post("/admin/tjanster", data={"_csrf": tok, "name": "Punktering fast", "category": "Cykel",
+                                      "price_from": "199", "price_fixed": "1", "active": "1", "sort": "1"})
+    svc_id = verkstad.connect().execute("SELECT id FROM services WHERE name='Punktering fast'").fetchone()[0]
+    html = pub.get("/boka").get_data(as_text=True)
+    assert "Punktering fast" in html and "199 kr" in html
+    slots = re.findall(r'name="slot" id="[^"]+" value="([^"]+)"', html)
+    ptok = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
+    r = pub.post("/boka", data={"_csrf": ptok, "name": "Cecilia Carlsson", "email": "cc@test.se", "category": "Cykel",
+                                "service_id": str(svc_id), "item": "Crescent", "description": "", "slot": slots[-1],
+                                "consent": "1"})
+    assert r.status_code == 302, r.get_data(as_text=True)[:400]
+    status_path = r.headers["Location"].split("?")[0]
+    page = pub.get(r.headers["Location"]).get_data(as_text=True)
+    assert "Din tid är bokad" in page and "Punktering fast" in page
+    assert pub.get(status_path + "/kalender.ics").get_data(as_text=True).startswith("BEGIN:VCALENDAR")
+    _t.sleep(0.5)
+    subjects = [m["Subject"] for m in sent]
+    assert any("Bokning bekräftad" in x for x in subjects), subjects
+    conf = next(m for m in sent if "Bokning bekräftad" in m["Subject"])
+    assert any(part.get_filename() == "bokning.ics" for part in conf.iter_attachments())
+    assert conf.get_body(("html",)) is not None
+    assert any(m["To"] == "agare@test.se" for m in sent)  # notis till ägaren
+    assert verkstad.connect().execute("SELECT COUNT(*) FROM mail_log WHERE status='skickat'").fetchone()[0] >= 2
+
+    # Ta emot → arbetsorder med fast pris som rad
+    bid = verkstad.connect().execute("SELECT id FROM bookings WHERE item='Crescent'").fetchone()[0]
+    r = adm.post(f"/admin/bokningar/{bid}/arbetsorder", data={"_csrf": tok})
+    wid = int(r.headers["Location"].split("/")[-1])
+    line = verkstad.connect().execute("SELECT description, unit_price FROM wo_lines WHERE work_order_id=?", (wid,)).fetchone()
+    assert line[0] == "Punktering fast" and line[1] == 199
+
+    # Timer start/stopp
+    adm.post(f"/admin/ao/{wid}/timer", data={"_csrf": tok})
+    c = verkstad.connect()
+    assert c.execute("SELECT timer_started_at FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
+    c.execute("UPDATE work_orders SET timer_started_at=datetime('now','localtime','-25 minutes') WHERE id=?", (wid,))
+    c.commit()
+    assert "Timer" in adm.get("/admin").get_data(as_text=True)
+    adm.post(f"/admin/ao/{wid}/timer", data={"_csrf": tok})
+    mins = verkstad.connect().execute("SELECT labor_minutes FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
+    assert 25 <= mins <= 27, mins
+
+    # Tavla + flytt därifrån tillbaka till tavlan, med e-post vid klart
+    assert "Crescent" in adm.get("/admin/tavla").get_data(as_text=True)
+    sent.clear()
+    r = adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "klar", "back": "tavla", "notify": "1"})
+    assert r.headers["Location"].endswith("/admin/tavla")
+    _t.sleep(0.4)
+    assert any("Klar för hämtning" in m["Subject"] for m in sent), [m["Subject"] for m in sent]
+
+    # Sök: exakt nummer går direkt, fritext listar
+    number = verkstad.connect().execute("SELECT number FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
+    assert adm.get(f"/admin/sok?q={number}").headers["Location"].endswith(f"/admin/ao/{wid}")
+    assert adm.get("/admin/sok?q=Crescent").status_code in (200, 302)
+
+    # Påminnelse: bekräftad bokning inom 26 h, skapad för mer än 2 h sedan
+    c = verkstad.connect()
+    soon = (verkstad.now() + verkstad.timedelta(hours=20)).strftime("%Y-%m-%dT%H:00")
+    cid = c.execute("SELECT id FROM customers WHERE email='cc@test.se'").fetchone()[0]
+    c.execute("INSERT INTO bookings(customer_id, category, item, slot_start, status, token, created_at) "
+              "VALUES (?, 'Cykel', 'Påminnelsecykel', ?, 'bekraftad', 'tok-rem', datetime('now','localtime','-1 day'))",
+              (cid, soon))
+    c.commit()
+    sent.clear()
+    with A.test_request_context(base_url="https://verkstad.example.se"):
+        assert verkstad.send_due_reminders() == 1
+        assert verkstad.send_due_reminders() == 0  # skickas bara en gång
+    _t.sleep(0.4)
+    assert any("Påminnelse" in m["Subject"] for m in sent)
+
+    # Testmejl via inställningar
+    sent.clear()
+    r = adm.post("/admin/epost/test", data={"_csrf": tok, "to": "x@test.se"})
+    assert len(sent) == 1 and "Testmejl" in sent[0]["Subject"]
+    assert "Testmejl" in adm.get("/admin/epost").get_data(as_text=True)
+
+    # API
+    key = verkstad.connect().execute("SELECT value FROM settings WHERE key='api_key'").fetchone()[0]
+    assert pub.get("/api/v1/summary").status_code == 401
+    assert pub.get("/api/v1/summary", headers={"Authorization": "Bearer fel"}).status_code == 401
+    h = {"Authorization": f"Bearer {key}"}
+    js = pub.get("/api/v1/summary", headers=h).json
+    assert js["work_orders"]["open"] >= 1 and "bookings" in js and js["business"] == "Testverkstan"
+    bk = pub.get("/api/v1/bookings?days=14", headers={"X-API-Key": key}).json["bookings"]
+    assert bk and all("@" not in (b["customer"] or "") for b in bk)  # ingen e-post i API:t
+    assert any(b["customer"] == "Cecilia C." for b in bk)
+    wos = pub.get("/api/v1/work-orders", headers=h).json["work_orders"]
+    assert any(w["number"] == number for w in wos)
+    assert pub.get("/api/v1/work-orders?status=xyz", headers=h).status_code == 400
+    assert "parts" in pub.get("/api/v1/low-stock", headers=h).json
+    # CORS
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "api", "api_cors_origin": "http://hub.local"})
+    r = pub.get("/api/v1/summary", headers=h)
+    assert r.headers.get("Access-Control-Allow-Origin") == "http://hub.local"
+    assert pub.open("/api/v1/summary", method="OPTIONS").status_code in (200, 204)
+
+    # Nya sidor renderar
+    for path in ["/admin/tavla", "/admin/tjanster", "/admin/epost", "/admin/installningar", "/manifest.webmanifest",
+                 "/theme.css", "/admin/ao/ny"]:
+        assert adm.get(path).status_code == 200, path
+    print("V2-TESTER OK")
 
 
 if __name__ == "__main__":
     test_everything()
+    test_v2()
+    print("ALLA TESTER OK")

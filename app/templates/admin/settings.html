@@ -1,59 +1,115 @@
-{% extends "base.html" %}
+{% extends "admin/_shell.html" %}
 {% from "admin/_macros.html" import csrf %}
 {% block title %}Inställningar{% endblock %}
 {% block content %}
-<h1>Inställningar</h1>
-<form method="post" class="card">
-  {{ csrf() }}
-  <h2>Verkstaden</h2>
-  <div class="fields">
-    <div><label>Namn</label><input type="text" name="business_name" value="{{ S.business_name }}"></div>
-    <div><label>Adress (visas för kunder)</label><input type="text" name="address" value="{{ S.address }}"></div>
-    <div><label>Kontakt-e-post</label><input type="email" name="contact_email" value="{{ S.contact_email }}"></div>
-    <div><label>Telefon</label><input type="tel" name="contact_phone" value="{{ S.contact_phone }}"></div>
-    <div><label>Publik adress (din Cloudflare-domän)</label><input type="url" name="public_url" value="{{ S.public_url }}" placeholder="https://verkstad.exempel.se"></div>
-    <div><label>Timpris (kr)</label><input type="number" name="labor_rate" value="{{ S.labor_rate }}" min="0"></div>
-  </div>
-  <p class="small muted">Publik adress används i NFC-taggar, QR-koder och e-post. Sätt den innan du skriver taggar – annars pekar de på den adress du råkar använda.</p>
-  <label>Kategorier (kommaseparerade)</label><input type="text" name="categories" value="{{ S.categories }}">
-  <p class="small muted">Kategorierna ”Cykel” och ”Elektronik” har inbyggda inlämningschecklistor.</p>
+<div class="page-head"><div><h1>Inställningar</h1><div class="sub">Version {{ VERSION }}</div></div></div>
 
-  <h2 class="mt">Bokning</h2>
-  <label class="check"><input type="checkbox" name="booking_enabled" value="1" {{ 'checked' if S.booking_enabled == '1' }}> <span>Publik bokning är öppen</span></label>
-  <label>Introtext</label><textarea name="booking_intro">{{ S.booking_intro }}</textarea>
-  <label>Öppna dagar</label>
-  <div class="row">{% set od = S.open_days.split(',') %}{% for n, d in days %}<label class="check"><input type="checkbox" name="open_days" value="{{ n }}" {{ 'checked' if n|string in od }}> <span>{{ d }}</span></label>{% endfor %}</div>
-  <div class="fields">
-    <div><label>Från</label><input type="text" name="open_from" value="{{ S.open_from }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
-    <div><label>Till</label><input type="text" name="open_to" value="{{ S.open_to }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
-    <div><label>Minuter per tid</label><input type="number" name="slot_minutes" value="{{ S.slot_minutes }}" min="10"></div>
-    <div><label>Bokningar per tid</label><input type="number" name="slot_capacity" value="{{ S.slot_capacity }}" min="1"></div>
-    <div><label>Dagar framåt</label><input type="number" name="days_ahead" value="{{ S.days_ahead }}" min="1" max="120"></div>
-    <div><label>Minsta framförhållning (timmar)</label><input type="number" name="min_notice_hours" value="{{ S.min_notice_hours }}" min="0"></div>
-  </div>
-  <label>Stängda datum (ÅÅÅÅ-MM-DD, kommaseparerade)</label><input type="text" name="blocked_dates" value="{{ S.blocked_dates }}" placeholder="2026-12-24,2026-12-31">
-  <label class="check"><input type="checkbox" name="new_calendar_token" value="1"> <span>Byt hemlig kalenderlänk</span></label>
+<div class="kpis">
+  <a class="kpi" href="{{ url_for('customers_list') }}"><span class="klabel">{{ icon('users') }} Kunder</span></a>
+  <a class="kpi" href="{{ url_for('wo_list', status='alla') }}"><span class="klabel">{{ icon('list') }} Alla ärenden</span></a>
+  <a class="kpi" href="{{ url_for('locations_list') }}"><span class="klabel">{{ icon('pin') }} Platser & taggar</span></a>
+  <a class="kpi" href="{{ url_for('services_admin') }}"><span class="klabel">{{ icon('tag') }} Tjänster & priser</span></a>
+  <a class="kpi" href="{{ url_for('mail_log_page') }}"><span class="klabel">{{ icon('mail') }} E-postlogg</span></a>
+</div>
 
-  <h2 class="mt">Personuppgifter</h2>
-  <div class="fields"><div><label>Anonymisera inaktiva kunder efter (månader)</label><input type="number" name="retention_months" value="{{ S.retention_months }}" min="1"></div></div>
-  <p><button>Spara inställningar</button></p>
-</form>
+<div class="grid-2">
+<div>
+  <form method="post" class="card" id="verkstad">
+    {{ csrf() }}<input type="hidden" name="section" value="verkstad">
+    <h2>Verkstaden</h2>
+    <div class="fields">
+      <div><label>Namn</label><input type="text" name="business_name" value="{{ S.business_name }}"></div>
+      <div><label>Undertitel</label><input type="text" name="tagline" value="{{ S.tagline }}"></div>
+      <div><label>Adress</label><input type="text" name="address" value="{{ S.address }}"></div>
+      <div><label>Telefon</label><input type="tel" name="contact_phone" value="{{ S.contact_phone }}"></div>
+      <div><label>Kontakt-e-post</label><input type="email" name="contact_email" value="{{ S.contact_email }}"></div>
+      <div><label>Timpris (kr)</label><input type="number" name="labor_rate" value="{{ S.labor_rate }}" min="0"></div>
+      <div><label>Accentfärg</label><input type="color" name="accent_color" value="{{ S.accent_color or '#1f6f5c' }}"></div>
+      <div><label>Gallra inaktiva kunder (mån)</label><input type="number" name="retention_months" value="{{ S.retention_months }}" min="1"></div>
+    </div>
+    <label>Publik adress</label><input type="url" name="public_url" value="{{ S.public_url }}" placeholder="https://verkstad.dindoman.se">
+    <p class="help">Används i NFC-taggar, QR-koder och e-post. Om PUBLIC_URL är satt i Unraid vinner den vid omstart.</p>
+    <label>Kategorier (kommaseparerade)</label><input type="text" name="categories" value="{{ S.categories }}">
+    <p class="mt mb0"><button>Spara</button></p>
+  </form>
 
-<div class="grid">
+  <form method="post" class="card" id="bokning">
+    {{ csrf() }}<input type="hidden" name="section" value="bokning">
+    <h2>Bokning</h2>
+    <label class="check"><input type="checkbox" name="booking_enabled" value="1" {{ 'checked' if S.booking_enabled == '1' }}> <span><b>Bokningssidan är öppen</b></span></label>
+    <label class="check"><input type="checkbox" name="auto_confirm" value="1" {{ 'checked' if S.auto_confirm == '1' }}> <span><b>Bekräfta automatiskt</b> – kunden får bekräftelse direkt. Avstängt: du bekräftar varje bokning.</span></label>
+    <label class="check"><input type="checkbox" name="reminder_enabled" value="1" {{ 'checked' if S.reminder_enabled == '1' }}> <span><b>Påminnelse dagen före</b> via e-post</span></label>
+    <label>Introtext på bokningssidan</label><input type="text" name="booking_intro" value="{{ S.booking_intro }}">
+    <label>Löfte om svar (vid manuell bekräftelse)</label><input type="text" name="response_promise" value="{{ S.response_promise }}">
+    <label>Öppna dagar</label>
+    <div class="row">{% set od = S.open_days.split(',') %}{% for n, d in days %}<label class="check"><input type="checkbox" name="open_days" value="{{ n }}" {{ 'checked' if n|string in od }}> <span>{{ d }}</span></label>{% endfor %}</div>
+    <div class="fields">
+      <div><label>Från</label><input type="text" name="open_from" value="{{ S.open_from }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
+      <div><label>Till</label><input type="text" name="open_to" value="{{ S.open_to }}" pattern="[0-2][0-9]:[0-5][0-9]"></div>
+      <div><label>Minuter per tid</label><input type="number" name="slot_minutes" value="{{ S.slot_minutes }}" min="10"></div>
+      <div><label>Bokningar per tid</label><input type="number" name="slot_capacity" value="{{ S.slot_capacity }}" min="1"></div>
+      <div><label>Dagar framåt</label><input type="number" name="days_ahead" value="{{ S.days_ahead }}" min="1" max="120"></div>
+      <div><label>Framförhållning (h)</label><input type="number" name="min_notice_hours" value="{{ S.min_notice_hours }}" min="0"></div>
+    </div>
+    <label>Stängda datum</label><input type="text" name="blocked_dates" value="{{ S.blocked_dates }}" placeholder="2026-12-24, 2026-12-31">
+    <p class="mt mb0"><button>Spara</button></p>
+  </form>
+
+  <form method="post" class="card" id="epost">
+    {{ csrf() }}<input type="hidden" name="section" value="epost">
+    <div class="spread"><h2 class="mb0">E-post</h2><span class="pill {{ 'skickat' if mail else 'fel' }}">{{ 'Aktiv' if mail else 'Inte konfigurerad' }}</span></div>
+    <p class="help">Bokningsbekräftelse med kalenderfil, påminnelse, offert, klart-besked och notiser till dig. <b>Gmail:</b> server smtp.gmail.com, port 587, ditt Gmail som användare och ett <i>app-lösenord</i> (Google-konto → Säkerhet → Applösenord).</p>
+    {% if env_mail %}<p class="flash error">{{ icon('alert') }}<span>Styrs av miljövariabler i Unraid: {{ env_mail|join(', ')|upper }}</span></p>{% endif %}
+    <div class="fields">
+      <div><label>SMTP-server</label><input type="text" name="smtp_host" value="{{ S.smtp_host }}" placeholder="smtp.gmail.com" autocomplete="off"></div>
+      <div><label>Port</label><input type="number" name="smtp_port" value="{{ S.smtp_port or 587 }}"></div>
+      <div><label>Användare</label><input type="text" name="smtp_user" value="{{ S.smtp_user }}" autocomplete="off"></div>
+      <div><label>Lösenord</label><input type="password" name="smtp_password" placeholder="{{ '•••••••• (sparat)' if S.smtp_password else '' }}" autocomplete="new-password"></div>
+      <div><label>Avsändare</label><input type="text" name="smtp_from" value="{{ S.smtp_from }}" placeholder="verkstad@dindoman.se"></div>
+      <div><label>Notiser till dig</label><input type="email" name="notify_email" value="{{ S.notify_email }}" placeholder="{{ S.contact_email }}"></div>
+    </div>
+    <p class="mt mb0"><button>Spara</button></p>
+  </form>
+  <form method="post" action="{{ url_for('mail_test') }}" class="card row">
+    {{ csrf() }}
+    <input type="email" name="to" placeholder="Skicka testmejl till… ({{ S.notify_email or S.contact_email or 'din e-post' }})">
+    <button class="ghost">{{ icon('mail') }} Skicka testmejl</button>
+  </form>
+</div>
+
+<div>
+  <form method="post" class="card" id="api">
+    {{ csrf() }}<input type="hidden" name="section" value="api">
+    <h2>API (hemskärm/hubb)</h2>
+    <p class="help">Läs-API för bokningar, öppna ärenden och lager. Skicka nyckeln som <span class="mono">Authorization: Bearer …</span>.</p>
+    <label>Bas-URL</label><p class="taglink">{{ api_base }}</p>
+    <label>API-nyckel</label><p class="taglink">{{ S.api_key }}</p>
+    <button type="button" class="ghost small" data-copy="{{ S.api_key }}">Kopiera nyckel</button>
+    <label>Tillåt webbläsaranrop från (CORS)</label><input type="text" name="api_cors_origin" value="{{ S.api_cors_origin }}" placeholder="http://192.168.1.50:8000">
+    <label class="check mt"><input type="checkbox" name="new_api_key" value="1"> <span>Skapa ny nyckel (den gamla slutar fungera)</span></label>
+    <p class="mt mb0"><button class="small">Spara</button></p>
+  </form>
+
   <div class="card">
-    <h2>Gallring (GDPR)</h2>
-    <p class="small">Anonymiserar kunder utan aktivitet på {{ S.retention_months }} månader och utan öppna ärenden.</p>
-    <form method="post" action="{{ url_for('purge_old') }}">{{ csrf() }}<button class="danger small" data-confirm="Kör gallring nu?">Kör gallring</button></form>
+    <h2>Kalender</h2>
+    <p class="help">Prenumerera i telefonen så syns bokningarna i din vanliga kalender.</p>
+    <p class="taglink">{{ cal_url }}</p>
+    <button type="button" class="ghost small" data-copy="{{ cal_url }}">Kopiera länk</button>
+    <form method="post" class="mt">{{ csrf() }}<input type="hidden" name="section" value="none"><input type="hidden" name="new_calendar_token" value="1"><button class="link small" data-confirm="Byta kalenderlänk? Den gamla slutar fungera.">Byt hemlig länk</button></form>
   </div>
+
   <div class="card">
     <h2>Backup</h2>
-    <p class="small">Automatisk backup varje dygn till <span class="mono">/data/backups</span>. Ingår i Unraids appdata-backup.</p>
-    <form method="post" action="{{ url_for('backup_now') }}">{{ csrf() }}<button class="small">Ta backup nu</button></form>
+    <p class="help">Automatiskt varje dygn till /data/backups.</p>
+    <form method="post" action="{{ url_for('backup_now') }}">{{ csrf() }}<button class="small ghost">Ta backup nu</button></form>
     <ul class="small">{% for b in backups %}<li><a href="{{ url_for('backup_download', name=b) }}">{{ b }}</a></li>{% endfor %}</ul>
   </div>
+
   <div class="card">
-    <h2>System</h2>
-    <p class="small">Version {{ VERSION }}<br>E-post: {{ 'aktiverad' if mail else 'inte konfigurerad (SMTP_HOST saknas)' }}</p>
+    <h2>Personuppgifter</h2>
+    <p class="help">Anonymiserar kunder utan aktivitet på {{ S.retention_months }} månader och utan öppna ärenden.</p>
+    <form method="post" action="{{ url_for('purge_old') }}">{{ csrf() }}<button class="danger small" data-confirm="Kör gallring nu?">Kör gallring</button></form>
   </div>
+</div>
 </div>
 {% endblock %}

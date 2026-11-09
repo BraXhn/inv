@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin/_shell.html" %}
 {% block title %}{{ wo.number }} – {{ 'Specifikation' if kind == 'faktura' else 'Inlämningskvitto' }}{% endblock %}
 {% block content %}
 <p class="no-print row"><a class="btn ghost small" href="{{ url_for('wo_detail', wid=wo.id) }}">← Tillbaka</a> <button class="small" data-print>Skriv ut</button></p>

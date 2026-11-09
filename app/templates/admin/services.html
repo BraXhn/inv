@@ -1,0 +1,43 @@
+{% extends "admin/_shell.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}Tjänster & priser{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Tjänster & priser</h1><div class="sub">Visas på bokningssidan. Tomt pris = ”Offert”. Fast pris läggs automatiskt på ärendet vid inlämning.</div></div></div>
+
+{% for s in rows %}
+<form method="post" class="card">
+  {{ csrf() }}<input type="hidden" name="id" value="{{ s.id }}">
+  <div class="fields">
+    <div><label>Namn</label><input type="text" name="name" value="{{ s.name }}" maxlength="120" required></div>
+    <div><label>Kategori</label><select name="category">{% for c in categories %}<option {{ 'selected' if c == s.category }}>{{ c }}</option>{% endfor %}</select></div>
+    <div><label>Pris (kr)</label><input type="number" name="price_from" value="{{ '%g'|format(s.price_from) if s.price_from is not none else '' }}" min="0" step="1" placeholder="Offert"></div>
+    <div><label>Ordning</label><input type="number" name="sort" value="{{ s.sort }}"></div>
+  </div>
+  <label>Beskrivning</label><input type="text" name="description" value="{{ s.description or '' }}" maxlength="500">
+  <div class="spread mt">
+    <div class="row">
+      <label class="check"><input type="checkbox" name="price_fixed" value="1" {{ 'checked' if s.price_fixed }}> <span>Fast pris (annars ”från”)</span></label>
+      <label class="check"><input type="checkbox" name="active" value="1" {{ 'checked' if s.active }}> <span>Visas för kunder</span></label>
+    </div>
+    <button class="small">Spara</button>
+  </div>
+</form>
+{% endfor %}
+
+<form method="post" class="card accent">
+  {{ csrf() }}
+  <h2>{{ icon('plus') }} Ny tjänst</h2>
+  <div class="fields">
+    <div><label>Namn</label><input type="text" name="name" maxlength="120" required></div>
+    <div><label>Kategori</label><select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>
+    <div><label>Pris (kr)</label><input type="number" name="price_from" min="0" step="1" placeholder="Offert"></div>
+    <div><label>Ordning</label><input type="number" name="sort" value="100"></div>
+  </div>
+  <label>Beskrivning</label><input type="text" name="description" maxlength="500">
+  <div class="spread mt">
+    <div class="row"><label class="check"><input type="checkbox" name="price_fixed" value="1"> <span>Fast pris</span></label>
+      <label class="check"><input type="checkbox" name="active" value="1" checked> <span>Visas för kunder</span></label></div>
+    <button>Lägg till</button>
+  </div>
+</form>
+{% endblock %}

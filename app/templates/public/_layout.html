@@ -1,10 +1,13 @@
 {% extends "base.html" %}
-{% block mainclass %}narrow{% endblock %}
-{% block footer %}
-<footer class="footer">
-  {{ S.business_name }}{% if S.address %} · {{ S.address }}{% endif %}
-  {% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}
-  {% if S.contact_email %} · <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}
-  <br><a href="{{ url_for('book') }}">Boka tid</a> · <a href="{{ url_for('privacy') }}">Integritet</a>
-</footer>
+{% block body %}
+<main class="pub">
+  {% for cat, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }} no-print">{{ icon('alert' if cat == 'error' else 'check') }}<span>{{ m }}</span></div>{% endfor %}
+  {% block content %}{% endblock %}
+  <footer class="footer">
+    <b>{{ S.business_name }}</b>{% if S.address %} · {{ S.address }}{% endif %}
+    {% if S.contact_phone %} · <a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}
+    {% if S.contact_email %} · <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}
+    <br><a href="{{ url_for('book') }}">Boka tid</a> · <a href="{{ url_for('privacy') }}">Integritet</a>
+  </footer>
+</main>
 {% endblock %}

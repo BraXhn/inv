@@ -1,0 +1,15 @@
+{% extends "admin/_shell.html" %}
+{% block title %}E-postlogg{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>E-postlogg</h1><div class="sub">De senaste 200 utskicken. {% if not mail %}<b>E-post är inte konfigurerad.</b>{% endif %}</div></div>
+  <a class="btn ghost" href="{{ url_for('settings_page') }}#epost">{{ icon('gear') }} E-postinställningar</a>
+</div>
+<div class="card flush table-wrap"><table>
+  <tr><th>Tid</th><th>Till</th><th>Ämne</th><th>Typ</th><th>Status</th></tr>
+  {% for r in rows %}
+  <tr><td class="nowrap small">{{ r.created_at|dt }}</td><td class="small">{{ r.to_addr }}</td><td>{{ r.subject }}{% if r.error %}<div class="xs muted">{{ r.error }}</div>{% endif %}</td>
+    <td class="small muted">{{ r.kind }}</td><td><span class="pill {{ r.status }}">{{ r.status }}</span></td></tr>
+  {% else %}<tr><td colspan="5" class="empty">Inga utskick än.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

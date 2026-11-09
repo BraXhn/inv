@@ -1,7 +1,7 @@
 {% extends "public/_layout.html" %}
 {% block title %}{{ err.code }}{% endblock %}
 {% block content %}
-<div class="card">
+<div class="step">
   <h1>{% if err.code == 404 %}Sidan finns inte{% elif err.code == 429 %}För många förfrågningar{% else %}Något gick fel{% endif %}</h1>
   <p class="muted">{% if err.code == 400 %}{{ err.description }}{% elif err.code == 429 %}Vänta en stund och försök igen.{% else %}Kontrollera länken och försök igen.{% endif %}</p>
   <p><a href="{{ url_for('book') }}">Till startsidan</a></p>

@@ -1,0 +1,26 @@
+{% extends "admin/_shell.html" %}
+{% block title %}Sök – {{ term }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Sökresultat</h1><div class="sub">{{ total }} träffar för ”{{ term }}”</div></div></div>
+{% if res.wo %}
+<div class="card flush"><div class="card-head"><h2>Arbetsordrar</h2></div><ul class="list">
+  {% for w in res.wo %}<li><div class="grow"><a class="title" href="{{ url_for('wo_detail', wid=w.id) }}">{{ w.number }} · {{ w.item }}</a><span class="meta">{{ w.customer_name }} · {{ w.category }}</span></div><span class="pill {{ w.status }}">{{ WO_STATUS_SHORT[w.status] }}</span></li>{% endfor %}
+</ul></div>
+{% endif %}
+{% if res.customers %}
+<div class="card flush"><div class="card-head"><h2>Kunder</h2></div><ul class="list">
+  {% for c in res.customers %}<li><span class="avatar">{{ c.name[:1] }}</span><div class="grow"><a class="title" href="{{ url_for('customer_detail', cid=c.id) }}">{{ c.name }}</a><span class="meta">{{ c.phone or '' }} {{ c.email or '' }}</span></div></li>{% endfor %}
+</ul></div>
+{% endif %}
+{% if res.parts %}
+<div class="card flush"><div class="card-head"><h2>Lager</h2></div><ul class="list">
+  {% for p in res.parts %}<li><div class="grow"><a class="title" href="{{ url_for('part_detail', pid=p.id) }}">{{ p.name }}</a><span class="meta">{{ p.sku or '' }} · {{ p.loc or 'ingen plats' }}</span></div><b class="nowrap">{{ p.qty|qty }} {{ p.unit }}</b></li>{% endfor %}
+</ul></div>
+{% endif %}
+{% if res.locations %}
+<div class="card flush"><div class="card-head"><h2>Platser</h2></div><ul class="list">
+  {% for l in res.locations %}<li><div class="grow"><a class="title" href="{{ url_for('location_detail', lid=l.id) }}">{{ l.name }}</a><span class="meta">{{ l.description or '' }}</span></div></li>{% endfor %}
+</ul></div>
+{% endif %}
+{% if not total %}<div class="card empty">{{ icon('search') }}Inget hittades. Prova ett serienummer, telefonnummer eller en del av namnet.</div>{% endif %}
+{% endblock %}

@@ -1,36 +1,54 @@
-{% extends "base.html" %}
+{% extends "admin/_shell.html" %}
 {% from "admin/_macros.html" import csrf, tagbox %}
 {% block title %}{{ wo.number }}{% endblock %}
 {% block content %}
-<div class="spread">
+<div class="page-head">
   <div>
-    <h1>{{ wo.number }} · {{ wo.item }}</h1>
-    <span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>
-    <span class="small muted">Skapad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · ligger på <b>{{ wo.loc }}</b>{% endif %}</span>
+    <div class="row"><span class="mono muted">{{ wo.number }}</span><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>{% if wo.timer_started_at %}<span class="pill live">Timer</span>{% endif %}</div>
+    <h1>{{ wo.item }}</h1>
+    <div class="sub">{{ wo.customer_name }} · inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
   </div>
-  <div class="row">
-    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id) }}">Inlämningskvitto</a>
-    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id, typ='faktura') }}">Specifikation</a>
+  <div class="actions">
+    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id) }}">{{ icon('printer') }} Kvitto</a>
+    <a class="btn ghost small" href="{{ url_for('wo_receipt', wid=wo.id, typ='faktura') }}">{{ icon('list') }} Specifikation</a>
   </div>
+</div>
+
+<div class="actionbar">
+  {% for st, label, primary in next_steps %}
+  <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}">
+    {{ csrf() }}<input type="hidden" name="status" value="{{ st }}">
+    {% if mail and wo.customer_email and st in ('offert', 'klar') %}<input type="hidden" name="notify" value="1">{% endif %}
+    <button class="{{ '' if primary else 'ghost' }}">{% if primary %}{{ icon('arrow') }}{% endif %} {{ label }}</button>
+  </form>
+  {% endfor %}
+  {% if wo.status not in ('utlamnad', 'avbruten') %}
+  <form method="post" action="{{ url_for('wo_timer', wid=wo.id) }}">
+    {{ csrf() }}
+    {% if wo.timer_started_at %}
+      <button class="ghost">{{ icon('stop') }} <span class="timer" data-since="{{ wo.timer_started_at }}">{{ wo.timer_started_at|age }}</span></button>
+    {% else %}
+      <button class="ghost">{{ icon('play') }} Starta timer</button>
+    {% endif %}
+  </form>
+  {% endif %}
+  <div class="grow"></div>
+  <details>
+    <summary class="small muted">Annan status / meddelande</summary>
+    <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}" class="mt">
+      {{ csrf() }}
+      <div class="fields">
+        <div><select name="status">{% for k, l in WO_STATUSES %}<option value="{{ k }}" {{ 'selected' if wo.status == k }}>{{ l }}</option>{% endfor %}</select></div>
+        <div><input type="text" name="message" maxlength="2000" placeholder="Meddelande till kunden (valfritt)"></div>
+      </div>
+      {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="notify" value="1" checked> <span>Mejla {{ wo.customer_email }}</span></label>{% endif %}
+      <button class="small mt">Uppdatera</button>
+    </form>
+  </details>
 </div>
 
 <div class="grid-2">
 <div>
-  <div class="card">
-    <h2>Ändra status</h2>
-    <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}">
-      {{ csrf() }}
-      <div class="fields">
-        <div><label for="status">Ny status</label>
-          <select id="status" name="status">{% for k, l in WO_STATUSES %}<option value="{{ k }}" {{ 'selected' if wo.status == k }}>{{ l }}</option>{% endfor %}</select></div>
-        <div><label for="message">Meddelande till kunden (valfritt)</label><input id="message" type="text" name="message" maxlength="2000"></div>
-      </div>
-      {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="notify" value="1" checked> <span>Skicka e-post till {{ wo.customer_email }}</span></label>{% endif %}
-      <p class="small muted">Offert kräver att offertbelopp är sparat. Kunden godkänner med ett klick på statussidan.</p>
-      <button>Uppdatera status</button>
-    </form>
-  </div>
-
   <form method="post" class="card">
     {{ csrf() }}
     <h2>Uppgifter</h2>
@@ -51,7 +69,7 @@
     {% for item in checklist %}<label class="check"><input type="checkbox" name="checklist" value="{{ item }}" {{ 'checked' if item in checked }}> <span>{{ item }}</span></label>{% endfor %}
     {% endif %}
 
-    <h3>Arbete och pris</h3>
+    <h3 id="pris">Arbete och pris</h3>
     <div class="fields">
       <div><label>Arbetstid (minuter)</label><input type="number" name="labor_minutes" min="0" step="5" value="{{ wo.labor_minutes }}"></div>
       <div><label>Timpris</label><input type="number" name="labor_rate" min="0" step="1" value="{{ '%g'|format(wo.labor_rate or 0) }}"></div>
@@ -76,6 +94,17 @@
       <tr class="sum"><th colspan="3">Totalt</th><th class="right nowrap">{{ totals.total|money }}</th><th></th></tr>
     </table></div>
 
+    {% if services %}
+    <h3>Lägg till tjänst</h3>
+    <form method="post" action="{{ url_for('wo_add_line', wid=wo.id) }}" class="fields">
+      {{ csrf() }}
+      <div><label>Tjänst</label><select name="service_id" data-price-target="sp" required><option value="">Välj…</option>
+        {% for sv in services %}<option value="{{ sv.id }}" data-price="{{ '%g'|format(sv.price_from) if sv.price_from is not none else '' }}">{{ sv.name }}{% if sv.price_from is not none %} – {{ sv.price_from|money }}{% endif %}</option>{% endfor %}</select></div>
+      <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
+      <div><label>Pris (tomt = listpris)</label><input id="sp" type="number" name="unit_price" min="0" step="any"></div>
+      <div><label>&nbsp;</label><button class="ghost">Lägg till</button></div>
+    </form>
+    {% endif %}
     <h3>Lägg till från lager</h3>
     <form method="post" action="{{ url_for('wo_add_line', wid=wo.id) }}" class="fields">
       {{ csrf() }}
