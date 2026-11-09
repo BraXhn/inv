@@ -31,7 +31,7 @@ Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad.
 2. GitHub Actions kör testerna och publicerar en image till `ghcr.io/braxhn/inv:latest`.
    - Kontrollera under *Packages → inv → Package settings* att paketet är publikt, annars måste Unraid logga in med `docker login ghcr.io` och en PAT med `read:packages`.
 3. Kopiera `unraid/verkstad.xml` till `/boot/config/plugins/dockerMan/templates-user/my-verkstad.xml` (redan ifylld för `BraXhn`).
-4. I Unraid: **Docker → Add Container → Template: verkstad**. Fyll i lösenord och publik adress och klicka Apply.
+4. I Unraid: **Docker → Add Container → Template: BraXhn-Verkstad**. Fyll i lösenord och publik adress och klicka Apply.
 
 ### Alternativ B: bygg lokalt med Compose Manager
 1. Kopiera mappen till t.ex. `/mnt/user/appdata/verkstad-src`.

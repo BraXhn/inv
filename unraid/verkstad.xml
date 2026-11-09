@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>verkstad</Name>
+  <Name>BraXhn-Verkstad</Name>
   <Repository>ghcr.io/braxhn/inv:latest</Repository>
   <Registry>https://github.com/BraXhn/inv/pkgs/container/inv</Registry>
   <Network>bridge</Network>
