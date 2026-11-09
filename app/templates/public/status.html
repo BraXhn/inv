@@ -14,7 +14,7 @@
     </div>
     {% if pos >= 0 %}
     <div class="progress" aria-hidden="true">{% for s in order %}<span class="{{ 'done' if loop.index0 <= pos }}"></span>{% endfor %}</div>
-    <div class="progress-labels"><span>Inlämnad</span><span>Felsökning</span><span>Reparation</span><span>Klar</span><span>Hämtad</span></div>
+    <div class="progress-labels"><span>Inlämnad</span><span>Felsökning</span><span>Reparation</span><span>Klar</span><span>{{ 'Skickad' if wo.return_method == 'post' else 'Hämtad' }}</span></div>
     {% endif %}
   </section>
 
@@ -30,7 +30,12 @@
   </section>
   {% endif %}
 
-  {% if wo.status == 'klar' %}
+  {% if wo.status == 'klar' and wo.return_method == 'post' %}
+  <section class="step card accent">
+    <div class="success"><div class="ring">{{ icon('check') }}</div><h2>Klart!</h2>
+    <p class="mb0">Vi packar och skickar tillbaka till dig. Du får spårningsnumret via e-post.</p></div>
+  </section>
+  {% elif wo.status == 'klar' %}
   <section class="step card accent">
     <div class="success"><div class="ring">{{ icon('check') }}</div><h2>Klart för hämtning!</h2>
     <p class="muted mb0">{{ S.address }}</p>
@@ -49,6 +54,38 @@
   </section>
   {% endif %}
 
+  {% if wo.return_tracking %}
+  <section class="step">
+    <h2>{{ icon('box') }} Skickat till dig</h2>
+    <p class="mb0">Spårningsnummer: <b class="mono">{{ wo.return_tracking }}</b></p>
+  </section>
+  {% endif %}
+
+  {% if wo.warranty_until %}
+  <section class="step" id="garanti">
+    <h2>{{ icon('shield') }} Garanti</h2>
+    {% if warranty_active(wo) %}
+      <p>Garanti på utfört arbete till och med <b>{{ wo.warranty_until|day }}</b>.</p>
+    {% else %}
+      <p>Garantin gällde till och med {{ wo.warranty_until|day }}.</p>
+    {% endif %}
+    {% if S.warranty_text %}<p class="small muted">{{ S.warranty_text }}</p>{% endif %}
+    {% if wo.status == 'utlamnad' %}
+    <details>
+      <summary>Har felet kommit tillbaka? Anmäl här</summary>
+      <form method="post" action="{{ url_for('warranty_claim', token=token) }}" class="mt">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label for="claim">Vad är fel?</label>
+        <textarea id="claim" name="description" maxlength="3000" required placeholder="När började det och hur märks det?"></textarea>
+        {% if wo.return_method == 'post' %}<input type="hidden" name="mode" value="post">{% endif %}
+        <button class="mt">Skicka anmälan</button>
+        <p class="help">Vi hör av oss om hur du lämnar in eller skickar objektet. Skicka inget innan dess.</p>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
+
   {% if events %}
   <section class="step">
     <h2>Händelser</h2>
@@ -60,19 +97,21 @@
   {% if is_new %}
   <div class="success">
     <div class="ring">{{ icon('check') }}</div>
-    <h1>Tack för din beställning!</h1>
-    <p class="muted">{% if booking.status == 'bekraftad' %}Bekräftelsen är skickad till din e-post.{% elif not booking.slot_start %}Vi kontaktar dig för att bestämma när du lämnar in.{% else %}{{ S.response_promise }}{% endif %} Spara gärna den här sidan.</p>
+    <h1>{{ 'Tack, vi har tagit emot din anmälan' if booking.warranty_of else 'Tack för din beställning!' }}</h1>
+    <p class="muted">{% if booking.warranty_of %}Vi kontaktar dig om hur du lämnar in eller skickar objektet.{% elif booking.dropoff_mode == 'post' and booking.status == 'bekraftad' %}Skriv ut följesedeln nedan och skicka paketet. Instruktionerna finns också i din e-post.{% elif booking.status == 'bekraftad' %}Bekräftelsen är skickad till din e-post.{% elif not booking.slot_start %}Vi kontaktar dig för att bestämma när du lämnar in.{% else %}{{ S.response_promise }}{% endif %} Spara gärna den här sidan.</p>
   </div>
   {% endif %}
   <section class="step">
-    <div class="spread"><h2 class="mb0">Beställning</h2><span class="pill {{ booking.status }}">{{ 'Bekräftad' if booking.status == 'bekraftad' else BOOKING_STATUSES[booking.status] }}</span></div>
+    <div class="spread"><h2 class="mb0">{{ 'Garantianmälan' if booking.warranty_of else 'Beställning' }}{% if booking.dropoff_mode == 'post' %} <span class="muted">{{ booking_ref(booking) }}</span>{% endif %}</h2><span class="pill {{ booking.status }}">{{ 'Bekräftad' if booking.status == 'bekraftad' else BOOKING_STATUSES[booking.status] }}</span></div>
     <dl class="kv mt">
       <dt>Gäller</dt><dd>{{ booking.category }}: {{ booking.item }}</dd>
       {% if service %}<dt>Tjänst</dt><dd>{{ service.name }}</dd>{% endif %}
-      <dt>Inlämning</dt><dd>{{ booking.slot_start|dropoff }}</dd>
+      <dt>Inlämning</dt><dd>{{ booking.slot_start|dropoff(booking.dropoff_mode) }}</dd>
       {% if booking.desired_ready %}<dt>Klart senast</dt><dd>{{ booking.desired_ready|day }}</dd>{% endif %}
       {% if booking.express_fee %}<dt>Expresstillägg</dt><dd>{{ booking.express_fee|money }}</dd>{% endif %}
-      {% if S.address %}<dt>Adress</dt><dd>{{ S.address }}</dd>{% endif %}
+      {% if booking.dropoff_mode == 'post' %}
+      <dt>Retur</dt><dd>{{ 'Med post till ' ~ booking.return_address if booking.return_method == 'post' else 'Du hämtar hos oss' }}</dd>
+      {% elif S.address %}<dt>Adress</dt><dd>{{ S.address }}</dd>{% endif %}
     </dl>
     {% if booking.status in ('ny', 'bekraftad') %}
     <div class="actions mt">
@@ -85,10 +124,31 @@
     {% endif %}
     {% if booking.status in ('avbojd', 'avbokad') %}<p class="mt"><a class="btn" href="{{ url_for('book') }}">Gör en ny beställning</a></p>{% endif %}
   </section>
+  {% if booking.dropoff_mode == 'post' and booking.status == 'bekraftad' %}
+  <section class="step card accent">
+    <h2>{{ icon('box') }} Skicka paketet</h2>
+    <div class="muted small">Adress</div>
+    <p class="post-addr">{{ S.business_name }}
+{{ post_address() }}</p>
+    <p>Skriv <b>{{ booking_ref(booking) }}</b> på paketet och lägg följesedeln överst.</p>
+    {% if S.post_instructions %}<p class="small muted">{{ S.post_instructions }}</p>{% endif %}
+    <p><a class="btn" href="{{ url_for('packing_slip', token=token) }}">{{ icon('printer') }} Skriv ut följesedel</a></p>
+    <form method="post" action="{{ url_for('booking_tracking', token=token) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="tracking">Spårningsnummer {% if booking.ship_tracking %}<span class="muted">(sparat)</span>{% endif %}</label>
+      <div class="row"><input id="tracking" type="text" name="tracking" maxlength="80" value="{{ booking.ship_tracking or '' }}" placeholder="Från fraktkvittot">
+        <button class="ghost">Spara</button></div>
+    </form>
+  </section>
+  {% endif %}
   <section class="step">
     <h2>Så går det till</h2>
     <ol class="small muted mb0">
+      {% if booking.dropoff_mode == 'post' %}
+      <li>Skicka paketet spårbart. Det är ditt ansvar tills vi tagit emot det.</li>
+      {% else %}
       <li>Lämna in på avtalad tid. Ta med laddare, nyckel eller tillbehör.</li>
+      {% endif %}
       <li>Vi felsöker och skickar en offert hit och till din e-post innan vi reparerar.</li>
       <li>Du följer allt på den här sidan och får besked när det är klart.</li>
     </ol>

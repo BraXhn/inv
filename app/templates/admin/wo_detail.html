@@ -4,7 +4,9 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="row"><span class="mono muted">{{ wo.number }}</span><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>{% if wo.timer_started_at %}<span class="pill live">Timer</span>{% endif %}</div>
+    <div class="row"><span class="mono muted">{{ wo.number }}</span><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>{% if wo.timer_started_at %}<span class="pill live">Timer</span>{% endif %}
+      {% if original %}<a class="pill warranty" href="{{ url_for('wo_detail', wid=original.id) }}">{{ icon('shield') }} Garantiärende för {{ original.number }}</a>{% endif %}
+      {% if wo.return_method == 'post' %}<span class="pill post">{{ icon('box') }} Retur med post</span>{% endif %}</div>
     <h1>{{ wo.item }}</h1>
     <div class="sub">{{ wo.customer_name }}, inlämnad {{ wo.created_at|dt }}{% if wo.due_date %}, utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %}, {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
   </div>
@@ -34,7 +36,7 @@
   </form>
   {% endif %}
   <div class="grow"></div>
-  {% if wo.status == 'klar' and wo.pickup_code %}<span class="pill klar" title="Jämför med kundens mottagningssedel">Hämtkod {{ wo.pickup_code }}</span>{% endif %}
+  {% if wo.status == 'klar' and wo.pickup_code and wo.return_method != 'post' %}<span class="pill klar" title="Jämför med kundens mottagningssedel">Hämtkod {{ wo.pickup_code }}</span>{% endif %}
   <details>
     <summary class="small muted">Annan status / meddelande</summary>
     <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}" class="mt">
@@ -177,6 +179,49 @@
     <h3>Kundens statuslänk</h3>
     <p class="taglink mono">{{ status_url }}</p>
     <button type="button" class="ghost small" data-copy="{{ status_url }}">Kopiera</button>
+  </div>
+  <div class="card" id="retur">
+    <h2>Retur och garanti</h2>
+    <dl class="kv small">
+      <dt>Retur</dt><dd>{% if wo.return_method == 'post' %}Med post{% if wo.return_address %}<br>{{ wo.return_address }}{% endif %}{% else %}Hämtas hos oss{% endif %}</dd>
+      {% if wo.inbound_tracking %}<dt>Spårning in</dt><dd class="mono">{{ wo.inbound_tracking }}</dd>{% endif %}
+      {% if wo.return_tracking %}<dt>Spårning ut</dt><dd class="mono">{{ wo.return_tracking }}</dd>{% endif %}
+      <dt>Garanti</dt><dd>{% if wo.warranty_until %}Till och med {{ wo.warranty_until|day }}{% if not warranty_active(wo) %} <span class="muted">(har gått ut)</span>{% endif %}{% elif original %}Garantiärende, ingen ny garanti{% else %}Startar vid utlämning ({{ S.warranty_months }} mån){% endif %}</dd>
+    </dl>
+    {% for c in claims %}<p class="small mb0">{{ icon('shield') }} <a href="{{ url_for('wo_detail', wid=c.id) }}">{{ c.number }}</a> <span class="pill {{ c.status }}">{{ WO_STATUS_SHORT.get(c.status, c.status) }}</span></p>{% endfor %}
+    {% if wo.return_method == 'post' and wo.status in ('klar', 'pagar', 'vantar_delar', 'felsokning', 'offert', 'inlamnad') %}
+    <form method="post" action="{{ url_for('wo_ship_return', wid=wo.id) }}" class="mt">
+      {{ csrf() }}
+      <label>Skickat tillbaka</label>
+      <div class="fields">
+        <div><input type="text" name="carrier" maxlength="40" placeholder="PostNord, DHL …" aria-label="Fraktbolag"></div>
+        <div><input type="text" name="tracking" maxlength="80" placeholder="Spårningsnummer" aria-label="Spårningsnummer" required></div>
+      </div>
+      <button class="small mt" data-confirm="Markera som skickad och mejla spårningsnumret till kunden?">{{ icon('box') }} Skicka retur</button>
+    </form>
+    {% endif %}
+    {% if wo.status not in ('utlamnad', 'avbruten') %}
+    <details class="mt">
+      <summary class="small">Ändra retursätt</summary>
+      <form method="post" action="{{ url_for('wo_return_method', wid=wo.id) }}">
+        {{ csrf() }}
+        <select name="return_method" aria-label="Retursätt"><option value="hamtas" {{ 'selected' if wo.return_method != 'post' }}>Hämtas hos oss</option><option value="post" {{ 'selected' if wo.return_method == 'post' }}>Med post ({{ return_fee|money }})</option></select>
+        <label>Returadress</label><textarea name="return_address" rows="2" maxlength="300">{{ wo.return_address or wo.customer_address or '' }}</textarea>
+        <button class="small ghost mt">Spara</button>
+      </form>
+    </details>
+    {% endif %}
+    {% if wo.status == 'utlamnad' %}
+    <details class="mt">
+      <summary class="small">Skapa garantiärende</summary>
+      <form method="post" action="{{ url_for('wo_warranty_claim', wid=wo.id) }}">
+        {{ csrf() }}
+        <label>Vad är fel nu?</label><textarea name="problem" rows="2" maxlength="3000"></textarea>
+        <p class="help">Nytt ärende kopplat till {{ wo.number }}, utan timpris. {% if not warranty_active(wo) %}Garantitiden har gått ut, men kunden kan ha rätt att reklamera i tre år enligt konsumenttjänstlagen.{% endif %}</p>
+        <button class="small">{{ icon('shield') }} Skapa och skriv ut mottagningssedel</button>
+      </form>
+    </details>
+    {% endif %}
   </div>
   <div class="card" id="ekonomi">
     <h2>Betalning</h2>

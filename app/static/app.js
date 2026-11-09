@@ -109,8 +109,11 @@
   function mode() { var m = checked('dropoff_mode'); return m ? m.value : 'tid'; }
 
   function showMode() {
-    var box = form.querySelector('[data-dropoff="tid"]');
-    if (box) { box.classList.toggle('hide', mode() !== 'tid'); }
+    form.querySelectorAll('[data-dropoff]').forEach(function (box) {
+      box.classList.toggle('hide', box.getAttribute('data-dropoff') !== mode());
+    });
+    var rm = checked('return_method'), ret = form.querySelector('[data-return="post"]');
+    if (ret) { ret.classList.toggle('hide', !!rm && rm.value !== 'post'); }
   }
 
   function pickReady(input) {
@@ -131,7 +134,7 @@
       if (!url || !grid || !window.fetch) { return; }
       var svc = checked('service_id'), slot = checked('slot');
       var drop = (mode() === 'tid' && slot) ? slot.value.slice(0, 10) : '';
-      fetch(url + '?service_id=' + encodeURIComponent(svc ? svc.value : '') + '&dropoff=' + encodeURIComponent(drop))
+      fetch(url + '?service_id=' + encodeURIComponent(svc ? svc.value : '') + '&dropoff=' + encodeURIComponent(drop) + '&mode=' + encodeURIComponent(mode()))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
           if (!data || !data.options) { return; }
@@ -165,11 +168,11 @@
     var item = (form.querySelector('[name=item]') || {}).value || '';
     var what = [labelText(svc) || (cat ? cat.value : ''), item].filter(Boolean).join(', ');
     setSum('what', what || 'Välj vad det gäller');
-    setSum('when', mode() === 'overens' ? 'Enligt överenskommelse' : (slot ? labelText(slot) : 'Välj inlämningstid'));
+    setSum('when', mode() === 'overens' ? 'Enligt överenskommelse' : mode() === 'post' ? 'Skickas med post' : (slot ? labelText(slot) : 'Välj inlämningstid'));
     form.querySelectorAll('[data-step]').forEach(function (st) {
       var key = st.getAttribute('data-step'), done = false;
       if (key === 'what') { done = !!cat && (!!svc || item.length > 1); }
-      if (key === 'when') { done = mode() === 'overens' || !!slot; }
+      if (key === 'when') { done = mode() !== 'tid' || !!slot; }
       if (key === 'ready') { done = !!checked('ready_date'); }
       if (key === 'who') { done = !!(form.querySelector('[name=name]').value && form.querySelector('[name=email]').value); }
       st.classList.toggle('done', done);
@@ -180,7 +183,7 @@
     var n = e.target.name;
     if (n === 'category') { filterServices(); }
     if (n === 'day') { showDay(); }
-    if (n === 'dropoff_mode') { showMode(); }
+    if (n === 'dropoff_mode' || n === 'return_method') { showMode(); }
     if (n === 'ready_date') { pickReady(e.target); }
     if (n === 'service_id' || n === 'slot' || n === 'dropoff_mode' || n === 'category') { refreshReady(); }
     updateSummary();

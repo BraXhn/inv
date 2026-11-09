@@ -13,30 +13,40 @@
 {% for b in rows %}
 <div class="card">
   <div class="spread">
-    <div><b>{{ b.item }}</b> <span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span></div>
+    <div><b>{{ b.item }}</b> <span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span>
+      {% if b.warranty_of %}<span class="pill warranty">{{ icon('shield') }} Garanti</span>{% endif %}
+      {% if b.dropoff_mode == 'post' %}<span class="pill post">{{ icon('box') }} Post · {{ booking_ref(b) }}</span>{% endif %}</div>
     <div class="small muted">Inkom {{ b.created_at|dt }}</div>
   </div>
   <dl class="kv small mt">
-    <dt>Inlämning</dt><dd>{{ b.slot_start|dropoff }}</dd>
+    <dt>Inlämning</dt><dd>{{ b.slot_start|dropoff(b.dropoff_mode) }}</dd>
     {% if b.desired_ready %}<dt>Klart senast</dt><dd>{{ b.desired_ready|day }}{% if b.express_fee %} <span class="pill offert">Express +{{ b.express_fee|money }}</span>{% endif %}</dd>{% endif %}
     <dt>Gäller</dt><dd>{{ b.category }}{% if b.service_name %}, {{ b.service_name }}{% endif %}</dd>
+    {% if b.dropoff_mode == 'post' %}
+    <dt>Spårning in</dt><dd>{{ b.ship_tracking or 'Inte angivet ännu' }}</dd>
+    <dt>Retur</dt><dd>{% if b.return_method == 'post' %}Med post till {{ b.return_address }}{% else %}Hämtas hos oss{% endif %}</dd>
+    {% endif %}
+    {% if b.warranty_of %}<dt>Original</dt><dd><a href="{{ url_for('wo_detail', wid=b.warranty_of) }}">Öppna ursprungsärendet</a></dd>{% endif %}
   </dl>
   {% if b.description %}<p class="mt">{{ b.description }}</p>{% endif %}
   <p class="small"><a href="{{ url_for('customer_detail', cid=b.customer_id) }}">{{ b.name }}</a>
     {% if b.email %}, <a href="mailto:{{ b.email }}">{{ b.email }}</a>{% endif %}
     {% if b.phone %}, <a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% endif %}</p>
   <div class="row">
+    {% if b.status == 'ny' and b.dropoff_mode == 'post' %}
+      <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta och skicka adress</button></form>
+    {% endif %}
     {% if b.status == 'ny' and b.slot_start %}
       <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta inlämningstid</button></form>
     {% endif %}
-    {% if b.status in ('ny', 'bekraftad') %}
+    {% if b.status in ('ny', 'bekraftad') and b.dropoff_mode != 'post' %}
       <form method="post" action="{{ url_for('booking_set_dropoff', bid=b.id) }}" class="row">{{ csrf() }}
         <input type="datetime-local" name="when" value="{{ b.slot_start }}" aria-label="Inlämningstid" class="dt-input">
         <button class="small {{ '' if not b.slot_start else 'ghost' }}">{{ 'Bestäm inlämningstid' if not b.slot_start else 'Ändra tid' }}</button>
       </form>
     {% endif %}
     {% if b.status in ('ny', 'bekraftad') %}
-      <form method="post" action="{{ url_for('booking_to_wo', bid=b.id) }}" class="inline">{{ csrf() }}<button class="small ghost">Lämnats in → arbetsorder</button></form>
+      <form method="post" action="{{ url_for('booking_to_wo', bid=b.id) }}" class="inline">{{ csrf() }}<button class="small {{ '' if b.dropoff_mode == 'post' else 'ghost' }}">{{ 'Paket mottaget → arbetsorder' if b.dropoff_mode == 'post' else 'Lämnats in → arbetsorder' }}</button></form>
       <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="row">{{ csrf() }}
         <input type="hidden" name="action" value="avboj">
         <input type="text" name="reason" placeholder="Anledning (skickas till kunden)" maxlength="500">

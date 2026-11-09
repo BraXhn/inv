@@ -96,7 +96,7 @@ def seller_snapshot():
     s = settings()
     return {k: s.get(k, "") for k in ("company_name", "business_name", "org_number", "vat_registered", "vat_number",
                                        "f_skatt", "address", "contact_phone", "contact_email", "bankgiro", "plusgiro",
-                                       "swish_number", "invoice_note")}
+                                       "swish_number", "invoice_note", "warranty_months", "warranty_text")}
 
 
 def next_number(db):

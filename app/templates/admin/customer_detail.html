@@ -7,7 +7,7 @@
   <div>
     <div class="card"><h2>Arbetsordrar</h2>{{ wo_table(wos, show_customer=False) }}</div>
     <div class="card"><h2>Beställningar</h2>
-      {% for b in bookings %}<p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> {{ b.slot_start|dropoff }} – {{ b.item }}</p>
+      {% for b in bookings %}<p><span class="pill {{ b.status }}">{{ BOOKING_STATUSES[b.status] }}</span> {{ b.slot_start|dropoff(b.dropoff_mode) }} – {{ b.item }}</p>
       {% else %}<p class="muted">Inga beställningar.</p>{% endfor %}
     </div>
   </div>

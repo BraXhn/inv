@@ -63,6 +63,7 @@
   <footer class="inv-foot">
     {% if seller.vat_registered != '1' %}<p>Säljaren är inte registrerad för mervärdesskatt.</p>{% endif %}
     {% if inv.kind == 'faktura' and seller.invoice_note %}<p>{{ seller.invoice_note }}</p>{% endif %}
+    {% if inv.work_order_id and inv.kind != 'kredit' and (seller.warranty_months or '0')|int > 0 %}<p><b>Garanti:</b> {{ seller.warranty_months }} månader på utfört arbete från utlämningsdagen. {{ seller.warranty_text }}</p>{% endif %}
     <p>{{ seller.company_name or seller.business_name }}{% if seller.contact_phone %}, {{ seller.contact_phone }}{% endif %}{% if seller.contact_email %}, {{ seller.contact_email }}{% endif %}</p>
   </footer>
 </article>

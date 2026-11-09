@@ -29,7 +29,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -133,6 +133,13 @@ DEFAULT_SETTINGS = {
     "min_lead_days": "1",
     "ready_days_window": "10",
     "allow_by_agreement": "1",
+    "warranty_months": "3",
+    "warranty_text": "Garantin gäller utfört arbete och delar vi monterat, från den dag du hämtar ut eller vi skickar tillbaka objektet. Den gäller inte nya fel, slitage eller skador efter utlämning. Garantin begränsar inte dina rättigheter enligt konsumenttjänstlagen, där du kan reklamera fel i upp till tre år.",
+    "post_enabled": "1",
+    "post_address": "",
+    "post_transit_days": "2",
+    "return_shipping_fee": "149",
+    "post_instructions": "Packa objektet stötsäkert i en stadig kartong med minst 5 cm stoppning runt om. Ta med laddare eller nyckel om felet kan ha med dem att göra. Lägg följesedeln överst i paketet. Skicka spårbart och spara kvittot – objektet är ditt ansvar tills vi tagit emot det.",
     "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
     "reminder_enabled": "1",
     "smtp_host": "",
@@ -315,6 +322,17 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("bookings", "est_minutes", "INTEGER"),
     ("customers", "address", "TEXT"),
     ("customers", "org_number", "TEXT"),
+    ("work_orders", "warranty_until", "TEXT"),
+    ("work_orders", "warranty_of", "INTEGER"),
+    ("work_orders", "return_method", "TEXT"),
+    ("work_orders", "return_address", "TEXT"),
+    ("work_orders", "return_tracking", "TEXT"),
+    ("work_orders", "inbound_tracking", "TEXT"),
+    ("bookings", "warranty_of", "INTEGER"),
+    ("bookings", "ship_tracking", "TEXT"),
+    ("bookings", "return_method", "TEXT"),
+    ("bookings", "return_address", "TEXT"),
+    ("bookings", "early_start_at", "TEXT"),
 ]
 
 
@@ -668,8 +686,35 @@ def notify_admin(subject, body, link=None):
     send_mail(to, subject, text, html, kind="notis")
 
 
-def fmt_dropoff(val):
+def fmt_dropoff(val, mode=None):
+    if mode == "post":
+        return "Skickas med post"
     return fmt_dt(val) if val else "Enligt överenskommelse"
+
+
+def add_months(d, months):
+    """Samma dag n månader fram; sista dagen i månaden om dagen saknas (31 jan + 1 = 28/29 feb)."""
+    m = d.month - 1 + months
+    y, m = d.year + m // 12, m % 12 + 1
+    last = (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)).day
+    return date(y, m, min(d.day, last))
+
+
+def post_address():
+    s = settings()
+    return (s.get("post_address") or "").strip() or (s.get("address") or "").strip()
+
+
+def post_enabled():
+    return settings().get("post_enabled") == "1" and bool(post_address())
+
+
+def warranty_months():
+    return max(0, setting_int("warranty_months", 3))
+
+
+def warranty_active(wo):
+    return bool(wo and wo["warranty_until"] and wo["warranty_until"] >= now().date().isoformat())
 
 
 def booking_details(b, service_name=None):
@@ -677,20 +722,51 @@ def booking_details(b, service_name=None):
     d = [("Gäller", f"{b['category']}: {b['item']}")]
     if service_name:
         d.append(("Tjänst", service_name))
-    d.append(("Inlämning", fmt_dropoff(b["slot_start"])))
+    d.append(("Inlämning", fmt_dropoff(b["slot_start"], b["dropoff_mode"])))
     if b["desired_ready"]:
         d.append(("Klart senast", fmt_dt(date.fromisoformat(b["desired_ready"]))))
     if b["express_fee"]:
         d.append(("Expresstillägg", fmt_money(b["express_fee"])))
-    if s.get("address"):
+    if b["dropoff_mode"] == "post":
+        d.append(("Skicka till", post_address()))
+        d.append(("Retur", "Med post" if b["return_method"] == "post" else "Hämtas hos oss"))
+    elif s.get("address"):
         d.append(("Adress", s["address"]))
     return d
 
 
-def send_booking_confirmation(b, name, email):
+def send_post_instructions(b, name, email):
+    """Bekräftelse för insändning: adress, packråd och länk till följesedeln."""
     s = settings()
     svc = q("SELECT name FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
     link = f"{base_url()}{url_for('status', token=b['token'])}"
+    mail_customer(email, f"Så skickar du in {b['item']} – {s['business_name']}", "post_instruktioner",
+                  heading="Skicka in ditt objekt",
+                  paragraphs=[f"Hej {name}! Din beställning är registrerad med referens {booking_ref(b)}.",
+                              f"Skicka paketet till: {post_address()}. Skriv {booking_ref(b)} på paketet.",
+                              s.get("post_instructions") or "",
+                              "Skriv ut följesedeln från länken nedan och lägg den i paketet. Fyll gärna i "
+                              "spårningsnumret där också, så ser vi när paketet är på väg."],
+                  details=booking_details(b, svc["name"] if svc else None),
+                  button=("Följesedel och spårning", link))
+
+
+def booking_ref(b):
+    return f"B-{b['id']:04d}"
+
+
+def send_booking_confirmation(b, name, email):
+    s = settings()
+    if b["dropoff_mode"] == "post":
+        return send_post_instructions(b, name, email)
+    svc = q("SELECT name FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
+    link = f"{base_url()}{url_for('status', token=b['token'])}"
+    if not b["slot_start"]:
+        return mail_customer(email, f"Beställning bekräftad – {s['business_name']}", "bokning_bekraftad",
+                             heading="Din beställning är bekräftad",
+                             paragraphs=[f"Hej {name}! Vi har bekräftat din beställning av {b['item']}."],
+                             details=booking_details(b, svc["name"] if svc else None),
+                             button=("Följ din beställning", link))
     ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//braxhn-verkstad//SV", "METHOD:PUBLISH"]
     ics += ics_event(f"kund-booking-{b['id']}@braxhn-verkstad", datetime.fromisoformat(b["slot_start"]),
                      setting_int("slot_minutes", 30), f"Inlämning: {b['item']} – {s['business_name']}",
@@ -795,12 +871,14 @@ def icon(name, cls=""):
     return Markup(f'<svg class="i {cls}" aria-hidden="true"><use href="/static/icons.svg#{name}"></use></svg>')
 
 
-app.jinja_env.filters.update(age=age_text, dropoff=lambda v: fmt_dropoff(v),
+app.jinja_env.filters.update(age=age_text, dropoff=lambda v, mode=None: fmt_dropoff(v, mode),
                              day=lambda v: fmt_dt(date.fromisoformat(v)) if v else "")
 app.jinja_env.globals.update(csrf_token=csrf_token, WO_STATUSES=WO_STATUSES,
                              WO_STATUS_LABEL=WO_STATUS_LABEL, WO_STATUS_SHORT=WO_STATUS_SHORT,
                              BOOKING_STATUSES=BOOKING_STATUSES, qr_svg=qr_svg, tag_url=tag_url,
-                             VERSION=VERSION, icon=icon, minutes_since=minutes_since)
+                             VERSION=VERSION, icon=icon, minutes_since=minutes_since,
+                             warranty_active=warranty_active, post_address=post_address,
+                             booking_ref=booking_ref)
 
 
 @app.context_processor
@@ -978,7 +1056,14 @@ def ready_json():
     except ValueError:
         drop = now().date()
     drop = max(drop, now().date())
+    if request.args.get("mode") == "post":
+        drop = post_arrival_day()
     return ready_options(drop, service_estimate(svc))
+
+
+def post_arrival_day():
+    """Beräknad ankomst för ett paket som skickas i dag."""
+    return nth_workday(now().date(), max(1, setting_int("post_transit_days", 2)))
 
 
 # ---------------------------------------------------------------------------
@@ -1034,6 +1119,7 @@ def book():
     slots = available_slots()
     valid_slots = {k for _, day in slots for k in day}
     allow_agree = s.get("allow_by_agreement") == "1"
+    allow_post = post_enabled()
     form = request.form if request.method == "POST" else {}
     if request.method == "GET" and request.args.get("tid") in valid_slots:
         form = {"slot": request.args["tid"], "dropoff_mode": "tid"}  # förvald tid från startsidan
@@ -1047,7 +1133,15 @@ def book():
         name, email, phone = clean(form.get("name"), 120), clean(form.get("email"), 200).lower(), clean(form.get("phone"), 40)
         category, item = clean(form.get("category"), 40), clean(form.get("item"), 200)
         description, slot = clean(form.get("description"), 3000), form.get("slot", "")
-        mode = "overens" if (form.get("dropoff_mode") == "overens" and allow_agree) else "tid"
+        mode = form.get("dropoff_mode")
+        if mode == "post" and allow_post:
+            pass
+        elif mode == "overens" and allow_agree:
+            pass
+        else:
+            mode = "tid"
+        return_method = "post" if (mode == "post" and form.get("return_method", "post") == "post") else "hamtas"
+        address = clean(form.get("address"), 300)
         service_id = to_int(form.get("service_id")) or None
         service = None
         if service_id:
@@ -1069,12 +1163,20 @@ def book():
         if mode == "tid" and slot not in valid_slots:
             errors.append("Den valda inlämningstiden är inte längre ledig. Välj en annan tid"
                           + (" eller inlämning enligt överenskommelse." if allow_agree else "."))
+        if return_method == "post" and len(address) < 8:
+            errors.append("Ange gatuadress, postnummer och ort som vi skickar tillbaka till.")
         if not form.get("consent"):
             errors.append("Du behöver godkänna att vi sparar dina uppgifter för att hantera beställningen.")
+        if not form.get("early_start"):
+            errors.append("Kryssa i att vi får börja arbetet direkt. Annars måste vi vänta 14 dagar enligt ångerrätten "
+                          "– kontakta oss i så fall så löser vi det.")
 
         # Klardatum och expresstillägg räknas alltid om på servern
         est = service_estimate(service)
-        drop_day = date.fromisoformat(slot[:10]) if (mode == "tid" and slot in valid_slots) else now().date()
+        if mode == "post":
+            drop_day = post_arrival_day()
+        else:
+            drop_day = date.fromisoformat(slot[:10]) if (mode == "tid" and slot in valid_slots) else now().date()
         ro = ready_options(drop_day, est)
         chosen = form.get("ready_date") or ro["standard"]
         opt = next((o for o in ro["options"] if o["date"] == chosen), None)
@@ -1109,29 +1211,35 @@ def book():
                     else:
                         cid = db.execute("INSERT INTO customers(name, email, phone, created_at, last_activity) "
                                          "VALUES (?,?,?,?,?)", (name, email, phone, now_s(), now_s())).lastrowid
+                    if return_method == "post":
+                        db.execute("UPDATE customers SET address=? WHERE id=?", (address, cid))
                     touch_customer(db, cid)
                     token = secrets.token_urlsafe(24)
-                    auto = s.get("auto_confirm") == "1" and mode == "tid"
+                    auto = s.get("auto_confirm") == "1" and mode in ("tid", "post")
                     bid = db.execute(
                         "INSERT INTO bookings(customer_id, category, item, description, slot_start, token, created_at, "
-                        "service_id, status, dropoff_mode, desired_ready, standard_ready, express_fee, est_minutes) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "service_id, status, dropoff_mode, desired_ready, standard_ready, express_fee, est_minutes, "
+                        "return_method, return_address, early_start_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (cid, category, item, description, slot if mode == "tid" else "", token, now_s(), service_id,
-                         "bekraftad" if auto else "ny", mode, chosen, ro["standard"], fee, est)).lastrowid
+                         "bekraftad" if auto else "ny", mode, chosen, ro["standard"], fee, est,
+                         return_method, address if return_method == "post" else None, now_s())).lastrowid
             if not errors:
                 b = q("SELECT * FROM bookings WHERE id=?", (bid,), one=True)
                 status_link = f"{base_url()}{url_for('status', token=token)}"
                 if auto:
                     send_booking_confirmation(b, name, email)
                 else:
-                    first = ("Vi kontaktar dig för att bestämma när du lämnar in." if mode == "overens"
-                             else s.get("response_promise") or "Du får besked när inlämningstiden är bekräftad.")
+                    first = {"overens": "Vi kontaktar dig för att bestämma när du lämnar in.",
+                             "post": "Vänta med att skicka tills vi bekräftat. Då får du adress och följesedel."}.get(
+                        mode, s.get("response_promise") or "Du får besked när inlämningstiden är bekräftad.")
                     mail_customer(email, f"Vi har tagit emot din beställning – {s['business_name']}", "bokning_mottagen",
                                   heading="Tack för din beställning!",
                                   paragraphs=[f"Hej {name}! Vi har tagit emot din beställning.", first],
                                   details=booking_details(b, service["name"] if service else None),
                                   button=("Följ din beställning", status_link))
-                when = fmt_dt(slot) if mode == "tid" else "enligt överenskommelse"
+                when = {"tid": fmt_dt(slot) if mode == "tid" else "", "post": f"med post, ref {booking_ref(b)}"}.get(
+                    mode, "enligt överenskommelse")
                 notify_admin(f"Ny beställning: {item}" + (f", {service['name']}" if service else ""),
                              f"{name}, {email} {phone}\n{category}: {item}\n{description}\n\nInlämning: {when}\n"
                              f"Önskat klart: {fmt_dt(date.fromisoformat(chosen))}"
@@ -1142,9 +1250,13 @@ def book():
 
     services = active_services()
     first_drop = date.fromisoformat(slots[0][1][0][:10]) if slots else now().date()
+    if form.get("dropoff_mode") == "post" and allow_post:
+        first_drop = post_arrival_day()
     ro = ready_options(first_drop, service_estimate(None))
     return render_template("public/book.html", slots=slots, form=form, errors=errors, categories=categories(),
-                           services=services, hours=opening_hours_text(), ready=ro, allow_agree=allow_agree)
+                           services=services, hours=opening_hours_text(), ready=ro, allow_agree=allow_agree,
+                           allow_post=allow_post, return_fee=to_float(s.get("return_shipping_fee"), 0),
+                           transit_days=max(1, setting_int("post_transit_days", 2)))
 
 
 def _status_context(token):
@@ -1242,6 +1354,78 @@ def cancel_booking(token):
                  link=f"{base_url()}/admin/bokningar")
     flash("Din beställning är avbruten.")
     return redirect(url_for("status", token=token))
+
+
+@app.route("/s/<token>/sparning", methods=["POST"])
+def booking_tracking(token):
+    """Kunden anger spårningsnumret för paketet in till oss."""
+    if rate_limited(f"track:{client_ip()}", 10, 600):
+        abort(429)
+    b = q("SELECT * FROM bookings WHERE token=?", (token,), one=True) or abort(404)
+    if b["dropoff_mode"] != "post" or b["status"] not in ("ny", "bekraftad"):
+        abort(400)
+    tracking = clean(request.form.get("tracking"), 80)
+    if not tracking:
+        flash("Skriv in spårningsnumret från kvittot.", "error")
+        return redirect(url_for("status", token=token))
+    x("UPDATE bookings SET ship_tracking=? WHERE id=?", (tracking, b["id"]))
+    notify_admin(f"Paket på väg: {b['item']} ({booking_ref(b)})", f"Spårning: {tracking}",
+                 link=f"{base_url()}/admin/bokningar")
+    flash("Tack! Vi hör av oss när paketet har kommit fram.")
+    return redirect(url_for("status", token=token))
+
+
+@app.route("/s/<token>/foljesedel")
+def packing_slip(token):
+    b = q("SELECT b.*, c.name, c.email, c.phone FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id "
+          "WHERE b.token=?", (token,), one=True) or abort(404)
+    if b["dropoff_mode"] != "post":
+        abort(404)
+    svc = q("SELECT name FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
+    return render_template("public/packing_slip.html", b=b, service=svc, address=post_address(),
+                           status_url=f"{base_url()}{url_for('status', token=token)}")
+
+
+@app.route("/s/<token>/garanti", methods=["POST"])
+def warranty_claim(token):
+    """Kunden anmäler fel efter reparationen. Blir en beställning kopplad till originalärendet."""
+    if rate_limited(f"claim:{client_ip()}", 3, 3600):
+        abort(429)
+    wo, _ = _status_context(token)
+    if not wo or wo["status"] != "utlamnad":
+        abort(400)
+    desc = clean(request.form.get("description"), 3000)
+    if len(desc) < 5:
+        flash("Beskriv kort vad som är fel.", "error")
+        return redirect(url_for("status", token=token) + "#garanti")
+    if q("SELECT 1 FROM bookings WHERE warranty_of=? AND status IN ('ny','bekraftad')", (wo["id"],), one=True):
+        flash("Du har redan en anmälan som vi tittar på. Vi hör av oss.")
+        return redirect(url_for("status", token=token))
+    mode = "post" if (request.form.get("mode") == "post" and wo["return_method"] == "post" and post_enabled()) else "overens"
+    within = warranty_active(wo)
+    new_token = secrets.token_urlsafe(24)
+    with get_db() as db:
+        bid = db.execute(
+            "INSERT INTO bookings(customer_id, category, item, description, slot_start, token, created_at, status, "
+            "dropoff_mode, warranty_of, return_method, return_address, est_minutes, express_fee) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+            (wo["customer_id"], wo["category"], wo["item"], f"Fel efter reparation ({wo['number']}): {desc}", "",
+             new_token, now_s(), "ny", mode, wo["id"], wo["return_method"] or "hamtas", wo["return_address"],
+             setting_int("default_est_minutes", 60))).lastrowid
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                   (wo["id"], now_s(), "Du har anmält ett fel efter reparationen. Vi kontaktar dig."))
+    notify_admin(f"Garantianmälan: {wo['number']} {wo['item']}",
+                 f"{wo['customer_name']}\n{desc}\n\n"
+                 + ("Inom garantitiden." if within else "Garantitiden har gått ut – bedöm som reklamation (konsumenttjänstlagen 3 år)."),
+                 link=f"{base_url()}/admin/bokningar")
+    cust = q("SELECT name, email FROM customers WHERE id=?", (wo["customer_id"],), one=True)
+    if cust and cust["email"]:
+        mail_customer(cust["email"], f"Vi har tagit emot din anmälan – {settings()['business_name']}", "garanti_mottagen",
+                      heading="Vi har tagit emot din anmälan",
+                      paragraphs=[f"Hej {cust['name']}! Vi har tagit emot din anmälan om {wo['item']} ({wo['number']}).",
+                                  "Vi kontaktar dig om hur du lämnar in eller skickar objektet. Skicka inget innan dess."],
+                      button=("Följ anmälan", f"{base_url()}{url_for('status', token=new_token)}"))
+    return redirect(url_for("status", token=new_token, ny=1))
 
 
 @app.route("/kalender/<token>.ics")
@@ -1529,6 +1713,14 @@ def booking_to_wo(bid):
     b = q("SELECT * FROM bookings WHERE id=?", (bid,), one=True) or abort(404)
     if b["work_order_id"]:
         return redirect(url_for("wo_detail", wid=b["work_order_id"]))
+    if b["warranty_of"]:
+        orig = q("SELECT * FROM work_orders WHERE id=?", (b["warranty_of"],), one=True)
+        if orig:
+            wid = create_warranty_wo(orig, b["description"] or "", booking_id=bid)
+            with get_db() as db:
+                db.execute("UPDATE work_orders SET inbound_tracking=? WHERE id=?", (b["ship_tracking"], wid))
+                db.execute("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
+            return after_intake(wid)
     svc = q("SELECT * FROM services WHERE id=?", (b["service_id"],), one=True) if b["service_id"] else None
     problem = b["description"] or ""
     if svc:
@@ -1542,6 +1734,17 @@ def booking_to_wo(bid):
             db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
                        "VALUES (?,?,?,?,?,?)", (wid, None, f"Expresstillägg, klart senast {fmt_dt(date.fromisoformat(b['desired_ready']))}",
                                                 1, b["express_fee"], now_s()))
+        db.execute("UPDATE work_orders SET return_method=?, return_address=?, inbound_tracking=?, warranty_of=? "
+                   "WHERE id=?", (b["return_method"] or "hamtas", b["return_address"], b["ship_tracking"],
+                                  b["warranty_of"], wid))
+        if b["dropoff_mode"] == "post":
+            db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                       (wid, now_s(), "Paketet har kommit fram till oss."))
+        if b["return_method"] == "post" and not b["warranty_of"]:
+            fee = to_float(settings().get("return_shipping_fee"), 0)
+            if fee:
+                db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
+                           "VALUES (?,?,?,?,?,?)", (wid, None, "Returfrakt", 1, fee, now_s()))
         db.execute("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
     return after_intake(wid)
 
@@ -1685,7 +1888,83 @@ def wo_detail(wid):
                            invoices=q("SELECT * FROM invoices WHERE work_order_id=? ORDER BY id", (wid,)),
                            services=q("SELECT * FROM services WHERE active=1 AND category=? ORDER BY sort, name",
                                       (wo["category"],)),
-                           status_url=f"{base_url()}{url_for('status', token=wo['token'])}")
+                           status_url=f"{base_url()}{url_for('status', token=wo['token'])}",
+                           original=q("SELECT id, number, item, warranty_until FROM work_orders WHERE id=?",
+                                      (wo["warranty_of"],), one=True) if wo["warranty_of"] else None,
+                           claims=q("SELECT id, number, status, created_at FROM work_orders WHERE warranty_of=? "
+                                    "ORDER BY id", (wid,)),
+                           return_fee=to_float(settings().get("return_shipping_fee"), 0))
+
+
+@app.route("/admin/ao/<int:wid>/garanti", methods=["POST"])
+@login_required
+def wo_warranty_claim(wid):
+    """Nytt garantiärende kopplat till originalet. Objektet är inlämnat igen, så mottagningssedel skrivs ut."""
+    wo = _load_wo(wid)
+    desc = clean(request.form.get("problem"), 3000)
+    wid2 = create_warranty_wo(wo, desc or "Kunden anmäler fel efter reparationen.")
+    return after_intake(wid2)
+
+
+def create_warranty_wo(wo, desc, booking_id=None):
+    within = warranty_active(wo)
+    note = (f"Garantiärende för {wo['number']}" + ("" if within else " (garantitiden har gått ut – bedöm som reklamation)")
+            + f".\n{desc}")
+    wid2 = create_work_order(customer_id=wo["customer_id"], category=wo["category"], item=wo["item"], problem=note,
+                             booking_id=booking_id, serial=wo["serial"] or "")
+    db = get_db()
+    with db:
+        db.execute("UPDATE work_orders SET warranty_of=?, labor_rate=0, return_method=?, return_address=? WHERE id=?",
+                   (wo["id"], wo["return_method"] or "hamtas", wo["return_address"], wid2))
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,0)",
+                   (wo["id"], now_s(), f"Garantiärende skapat."))
+    return wid2
+
+
+@app.route("/admin/ao/<int:wid>/retur", methods=["POST"])
+@login_required
+def wo_ship_return(wid):
+    """Skickat tillbaka med post: spårningsnummer, status utlämnad och garanti startar."""
+    wo = _load_wo(wid)
+    tracking = clean(request.form.get("tracking"), 80)
+    carrier = clean(request.form.get("carrier"), 40)
+    if not tracking:
+        flash("Ange spårningsnumret från fraktsedeln.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#retur")
+    db = get_db()
+    with db:
+        if wo["timer_started_at"]:
+            stop_timer(db, wo)
+        db.execute("UPDATE work_orders SET status='utlamnad', return_tracking=?, updated_at=?, closed_at=? WHERE id=?",
+                   (f"{carrier} {tracking}".strip(), now_s(), now_s(), wid))
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                   (wid, now_s(), f"Skickat tillbaka med post. Spårning: {carrier} {tracking}".replace("  ", " ")))
+        start_warranty(db, wo)
+        touch_customer(db, wo["customer_id"])
+    if wo["customer_email"]:
+        wo2 = _load_wo(wid)
+        details = [("Ärende", wo["number"]), ("Spårning", f"{carrier} {tracking}".strip())]
+        if wo2["warranty_until"]:
+            details.append(("Garanti till", fmt_dt(date.fromisoformat(wo2["warranty_until"]))))
+        mail_customer(wo["customer_email"], f"{wo['item']} är på väg tillbaka – {settings()['business_name']}",
+                      "retur_skickad", heading="Ditt paket är skickat",
+                      paragraphs=[f"Hej {wo['customer_name']}! {wo['item']} är skickad till dig."],
+                      details=details,
+                      button=("Visa ärendet", f"{base_url()}{url_for('status', token=wo['token'])}"))
+    flash("Markerad som skickad. Kunden har fått spårningsnumret." if mail_enabled() else "Markerad som skickad.")
+    return redirect(url_for("wo_detail", wid=wid))
+
+
+@app.route("/admin/ao/<int:wid>/returmetod", methods=["POST"])
+@login_required
+def wo_return_method(wid):
+    wo = _load_wo(wid)
+    method = "post" if request.form.get("return_method") == "post" else "hamtas"
+    addr = clean(request.form.get("return_address"), 300) or wo["customer_address"]
+    x("UPDATE work_orders SET return_method=?, return_address=?, updated_at=? WHERE id=?",
+      (method, addr if method == "post" else wo["return_address"], now_s(), wid))
+    flash("Returen är ändrad." + (" Lägg till returfrakt som rad om den ska debiteras." if method == "post" else ""))
+    return redirect(url_for("wo_detail", wid=wid) + "#retur")
 
 
 def stop_timer(db, wo):
@@ -1723,6 +2002,16 @@ def wo_timer(wid):
     return redirect(_back_url(wid))
 
 
+def start_warranty(db, wo):
+    """Garantin räknas från utlämningsdagen. Ett garantiärende förlänger inte originalets garanti."""
+    months = warranty_months()
+    if months and not wo["warranty_until"]:
+        until = add_months(now().date(), months).isoformat()
+        db.execute("UPDATE work_orders SET warranty_until=? WHERE id=?", (until, wo["id"]))
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                   (wo["id"], now_s(), f"Garanti på utfört arbete till och med {fmt_dt(date.fromisoformat(until))}."))
+
+
 def _back_url(wid):
     back = request.form.get("back") or request.args.get("back")
     return {"tavla": url_for("board"), "oversikt": url_for("dashboard")}.get(back, url_for("wo_detail", wid=wid))
@@ -1745,6 +2034,8 @@ def wo_set_status(wid):
             stop_timer(db, wo)
         db.execute("UPDATE work_orders SET status=?, updated_at=?, closed_at=? WHERE id=?",
                    (new, now_s(), now_s() if new in ("utlamnad", "avbruten") else None, wid))
+        if new == "utlamnad":
+            start_warranty(db, wo)
         text = f"Status: {WO_STATUS_LABEL[new]}." + (f" {msg}" if msg else "")
         if new == "offert":
             text += f" Offert: {fmt_money(wo['price_quote'])}."
@@ -2364,6 +2655,8 @@ SETTINGS_SECTIONS = {
     "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "booking_intro", "response_promise",
                 "capacity_hours_week", "default_est_minutes", "express_fee_per_day", "min_lead_days",
                 "ready_days_window", "allow_by_agreement",
+                "post_enabled", "post_address", "post_transit_days", "return_shipping_fee", "post_instructions",
+                "warranty_months", "warranty_text",
                 "open_days", "open_from", "open_to", "slot_minutes", "slot_capacity", "days_ahead",
                 "min_notice_hours", "blocked_dates"],
     "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
@@ -2375,7 +2668,7 @@ SETTINGS_SECTIONS = {
 }
 CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake", "label_on_intake",
                      "allow_by_agreement", "vat_registered", "prices_include_vat", "f_skatt",
-                     "label_customer_on_intake"}
+                     "label_customer_on_intake", "post_enabled"}
 
 
 @app.route("/admin/epost/test", methods=["POST"])

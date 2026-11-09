@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Följesedel {{ booking_ref(b) }} – {{ S.business_name }}{% endblock %}
+{% block body %}
+<main class="slip">
+  <p class="noprint actions"><button data-print>{{ icon('printer') }} Skriv ut</button> <a class="btn ghost" href="{{ status_url }}">Tillbaka</a></p>
+  <div class="spread">
+    <div><div class="muted small">Följesedel – lägg den överst i paketet</div><h1>{{ S.business_name }}</h1></div>
+    <div class="ref">{{ booking_ref(b) }}</div>
+  </div>
+
+  <div class="box">
+    <div class="muted small">Skicka till</div>
+    <div class="post-addr">{{ S.business_name }}
+{{ address }}</div>
+    <p class="small mb0">Skriv <b>{{ booking_ref(b) }}</b> på paketets utsida.</p>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <div class="muted small">Avsändare</div>
+      <p class="mb0"><b>{{ b.name }}</b><br>{{ b.email }}{% if b.phone %}<br>{{ b.phone }}{% endif %}</p>
+    </div>
+    <div class="box">
+      <div class="muted small">Retur</div>
+      <p class="mb0">{% if b.return_method == 'post' %}Skickas tillbaka till:<br><span class="post-addr">{{ b.return_address }}</span>{% else %}Jag hämtar själv{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="muted small">Innehåll</div>
+    <p><b>{{ b.category }}: {{ b.item }}</b>{% if service %}<br>{{ service.name }}{% endif %}</p>
+    {% if b.description %}<p class="small">{{ b.description }}</p>{% endif %}
+    <div class="muted small">Tillbehör i paketet (laddare, nyckel, kablar …)</div>
+    <div class="line"></div><div class="line"></div>
+    <div class="muted small mt">Serienummer (om det finns)</div>
+    <div class="line"></div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="muted small">Klart senast</div>
+      <p><b>{{ b.desired_ready|day }}</b>{% if b.express_fee %} (express){% endif %}<br><span class="small muted">räknat från att paketet är framme</span></p>
+      <div class="muted small">Spårningsnummer</div>
+      <div class="line">{{ b.ship_tracking or '' }}</div>
+    </div>
+    <div class="qr right">{{ qr_svg(status_url) }}<div class="xs muted">Följ ärendet</div></div>
+  </div>
+
+  {% if S.post_instructions %}<p class="small mt">{{ S.post_instructions }}</p>{% endif %}
+  <p class="xs muted">Vi kontaktar dig med offert innan vi gör något utöver det du beställt. {{ S.intake_terms }}</p>
+</main>
+{% endblock %}

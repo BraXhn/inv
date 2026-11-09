@@ -65,6 +65,18 @@
       <div><label>Framförhållning (h)</label><input type="number" name="min_notice_hours" value="{{ S.min_notice_hours }}" min="0"></div>
     </div>
     <label>Stängda datum</label><input type="text" name="blocked_dates" value="{{ S.blocked_dates }}" placeholder="2026-12-24, 2026-12-31">
+    <h3>Insändning med post</h3>
+    <label class="check"><input type="checkbox" name="post_enabled" value="1" {{ 'checked' if S.post_enabled == '1' }}> <span><b>Kunder kan skicka in med post</b>{% if S.post_enabled == '1' and not post_address() %} – <span class="bad">visas inte förrän du fyllt i en adress</span>{% endif %}</span></label>
+    <label>Adress för paket <span class="muted">(tomt = verkstadens adress)</span></label><textarea name="post_address" rows="2">{{ S.post_address }}</textarea>
+    <div class="fields">
+      <div><label>Transportdagar in</label><input type="number" name="post_transit_days" value="{{ S.post_transit_days }}" min="1" max="10"></div>
+      <div><label>Returfrakt (kr)</label><input type="number" name="return_shipping_fee" value="{{ S.return_shipping_fee }}" min="0" step="1"></div>
+    </div>
+    <label>Packråd till kunden</label><textarea name="post_instructions" rows="3">{{ S.post_instructions }}</textarea>
+    <h3>Garanti</h3>
+    <div class="fields"><div><label>Garanti på utfört arbete (månader, 0 = ingen)</label><input type="number" name="warranty_months" value="{{ S.warranty_months }}" min="0" max="60"></div></div>
+    <label>Garantitext <span class="muted">(på kvitto, faktura och kundens sida)</span></label><textarea name="warranty_text" rows="3">{{ S.warranty_text }}</textarea>
+    <p class="help">Låt meningen om konsumenttjänstlagen stå kvar. En garanti får inte ge kunden sämre rätt än lagen, som ger tre års reklamationsrätt.</p>
     <p class="mt mb0"><button>Spara</button></p>
   </form>
 

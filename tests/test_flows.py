@@ -56,7 +56,7 @@ def test_everything():
     tok = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
     form = {"_csrf": tok, "name": "Anna Andersson", "email": "Anna@Example.se", "phone": "0701234567",
             "category": "Cykel", "item": "Scott Spark", "description": "Bromsarna tar dåligt", "slot": slots[0],
-            "consent": "1", "website": ""}
+            "consent": "1", "early_start": "1", "website": ""}
     r = pub.post("/boka", data=form)
     assert r.status_code == 302 and "/s/" in r.headers["Location"], r.get_data(as_text=True)[:500]
     status_path = r.headers["Location"].split("?")[0]
@@ -248,7 +248,7 @@ def test_v2():
     ptok = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
     r = pub.post("/boka", data={"_csrf": ptok, "name": "Cecilia Carlsson", "email": "cc@test.se", "category": "Cykel",
                                 "service_id": str(svc_id), "item": "Crescent", "description": "", "slot": slots[-1],
-                                "consent": "1"})
+                                "consent": "1", "early_start": "1"})
     assert r.status_code == 302, r.get_data(as_text=True)[:400]
     status_path = r.headers["Location"].split("?")[0]
     page = pub.get(r.headers["Location"]).get_data(as_text=True)
@@ -490,7 +490,7 @@ def test_orders():
     t = csrf(pub, "/boka")
     data = {"_csrf": t, "name": "Erik Ek", "email": "erik@test.se", "phone": "0701111111", "category": "Cykel",
             "item": "Monark", "description": "Rostig kedja", "dropoff_mode": "overens", "ready_date": express_day,
-            "fee_ack": "0", "consent": "1"}
+            "fee_ack": "0", "consent": "1", "early_start": "1"}
     r = pub.post("/boka", data=data)
     body = r.get_data(as_text=True)
     assert r.status_code == 200 and "Expresstillägget" in body and f'value="{fee}' in body
@@ -526,7 +526,7 @@ def test_orders():
     t = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
     r = pub.post("/boka", data={"_csrf": t, "name": "Frida F", "email": "frida@test.se", "category": "Elektronik",
                                 "item": "Radio", "description": "Brus", "dropoff_mode": "tid", "slot": slots[-1],
-                                "consent": "1"})
+                                "consent": "1", "early_start": "1"})
     assert r.status_code == 302
     b3 = verkstad.connect().execute("SELECT * FROM bookings WHERE item='Radio'").fetchone()
     assert b3["status"] == "bekraftad" and b3["express_fee"] == 0 and b3["desired_ready"] == b3["standard_ready"]
@@ -665,10 +665,105 @@ def test_finance():
     print("EKONOMI-TESTER OK")
 
 
+def test_warranty_post():
+    """Insändning med post, retur med spårning, garanti från utlämning och garantiärenden."""
+    verkstad._rl_hits.clear()
+    from datetime import date as _d
+    assert verkstad.add_months(_d(2026, 1, 31), 1) == _d(2026, 2, 28)
+    assert verkstad.add_months(_d(2027, 11, 30), 3) == _d(2028, 2, 29)
+    assert verkstad.add_months(_d(2026, 10, 15), 3) == _d(2027, 1, 15)
+    adm = login(A.test_client())
+    pub = A.test_client()
+    tok = csrf(adm, "/admin/installningar")
+    adm.post("/admin/installningar", data={
+        "_csrf": tok, "section": "bokning", "booking_enabled": "1", "auto_confirm": "1", "allow_by_agreement": "1",
+        "open_days": ["1", "2", "3", "4", "5", "6", "7"], "open_from": "08:00", "open_to": "22:00",
+        "slot_minutes": "60", "slot_capacity": "1", "days_ahead": "14", "min_notice_hours": "0",
+        "capacity_hours_week": "70", "default_est_minutes": "60", "express_fee_per_day": "150", "min_lead_days": "1",
+        "ready_days_window": "21", "post_enabled": "1", "post_address": "Verkstadsvägen 1\n591 00 Motala",
+        "post_transit_days": "3", "return_shipping_fee": "149", "post_instructions": "Packa väl.",
+        "warranty_months": "3", "warranty_text": "Begränsar inte konsumenttjänstlagen."})
+    assert "Skicka med post" in pub.get("/boka").get_data(as_text=True)
+    assert pub.get("/klar.json?mode=post").json["standard"] > pub.get("/klar.json").json["standard"]
+
+    t = csrf(pub, "/boka")
+    data = {"_csrf": t, "name": "Hugo Post", "email": "hugo@test.se", "category": "Elektronik", "item": "Förstärkare X",
+            "description": "Brummar", "dropoff_mode": "post", "return_method": "post", "consent": "1"}
+    body = pub.post("/boka", data=data).get_data(as_text=True)
+    assert "Ange gatuadress" in body and "ångerrätten" in body
+    t = csrf(pub, "/boka")
+    r = pub.post("/boka", data={**data, "_csrf": t, "address": "Storgatan 5, 111 22 Stockholm", "early_start": "1"})
+    assert r.status_code == 302, r.get_data(as_text=True)[:500]
+    b = verkstad.connect().execute("SELECT * FROM bookings WHERE item='Förstärkare X'").fetchone()
+    assert (b["dropoff_mode"], b["status"], b["return_method"], b["slot_start"]) == ("post", "bekraftad", "post", "")
+    with A.app_context():
+        arrival = verkstad.post_arrival_day().isoformat()
+    assert b["early_start_at"] and b["desired_ready"] >= arrival
+    token = b["token"]
+    page = pub.get(f"/s/{token}").get_data(as_text=True)
+    ref = f"B-{b['id']:04d}"
+    assert "Skicka paketet" in page and ref in page and "Verkstadsvägen 1" in page
+    slip = pub.get(f"/s/{token}/foljesedel").get_data(as_text=True)
+    assert ref in slip and "Storgatan 5" in slip and "Förstärkare X" in slip
+    t = csrf(pub, f"/s/{token}")
+    pub.post(f"/s/{token}/sparning", data={"_csrf": t, "tracking": "RR123456789SE"})
+    assert verkstad.connect().execute("SELECT ship_tracking FROM bookings WHERE id=?", (b["id"],)).fetchone()[0] == "RR123456789SE"
+    assert "Paket mottaget" in adm.get("/admin/bokningar").get_data(as_text=True)
+
+    # Paket mottaget -> arbetsorder med retur och returfrakt
+    r = adm.post(f"/admin/bokningar/{b['id']}/arbetsorder", data={"_csrf": tok})
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    w = verkstad.connect().execute("SELECT * FROM work_orders WHERE id=?", (wid,)).fetchone()
+    assert (w["return_method"], w["inbound_tracking"]) == ("post", "RR123456789SE") and "Storgatan" in w["return_address"]
+    lines = verkstad.connect().execute("SELECT description, unit_price FROM wo_lines WHERE work_order_id=?", (wid,)).fetchall()
+    assert ("Returfrakt", 149.0) in [tuple(l) for l in lines]
+    detail = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert "Skicka retur" in detail and "Retur med post" in detail
+
+    # Skicka retur -> utlämnad, spårning, garanti 3 månader
+    r = adm.post(f"/admin/ao/{wid}/retur", data={"_csrf": tok, "carrier": "PostNord", "tracking": "00340434"})
+    w = verkstad.connect().execute("SELECT * FROM work_orders WHERE id=?", (wid,)).fetchone()
+    assert w["status"] == "utlamnad" and w["return_tracking"] == "PostNord 00340434"
+    assert w["warranty_until"] == verkstad.add_months(verkstad.now().date(), 3).isoformat()
+    page = pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    assert "PostNord 00340434" in page and "Garanti på utfört arbete" in page and "konsumenttjänstlagen" in page
+    # Kvitto bär garantitexten
+    adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "kvitto", "payment_method": "swish"})
+    iid = verkstad.connect().execute("SELECT id FROM invoices WHERE work_order_id=?", (wid,)).fetchone()[0]
+    assert "Garanti:" in adm.get(f"/admin/faktura/{iid}").get_data(as_text=True)
+
+    # Kunden anmäler fel -> beställning kopplad till originalet, dubbletter stoppas
+    t = csrf(pub, f"/s/{w['token']}")
+    r = pub.post(f"/s/{w['token']}/garanti", data={"_csrf": t, "description": "Brummar igen", "mode": "post"})
+    assert r.status_code == 302
+    cb = verkstad.connect().execute("SELECT * FROM bookings WHERE warranty_of=?", (wid,)).fetchone()
+    assert cb["status"] == "ny" and cb["dropoff_mode"] == "post" and cb["return_method"] == "post"
+    assert "Garantianmälan" in pub.get(r.headers["Location"]).get_data(as_text=True)
+    pub.post(f"/s/{w['token']}/garanti", data={"_csrf": t, "description": "Igen igen"})
+    assert verkstad.connect().execute("SELECT COUNT(*) FROM bookings WHERE warranty_of=?", (wid,)).fetchone()[0] == 1
+    r = adm.post(f"/admin/bokningar/{cb['id']}/arbetsorder", data={"_csrf": tok})
+    gid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    g = verkstad.connect().execute("SELECT * FROM work_orders WHERE id=?", (gid,)).fetchone()
+    assert g["warranty_of"] == wid and g["labor_rate"] == 0 and "Garantiärende för" in g["problem"]
+    assert not verkstad.connect().execute("SELECT 1 FROM wo_lines WHERE work_order_id=?", (gid,)).fetchone()
+    assert "Garantiärende för" in adm.get(f"/admin/ao/{gid}").get_data(as_text=True)
+    assert "shield" in adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+
+    # Garantiärende direkt från admin, och utlämning startar inte ny garanti på originalet
+    r = adm.post(f"/admin/ao/{wid}/garanti", data={"_csrf": tok, "problem": "Glapp"})
+    assert r.status_code == 302
+    assert verkstad.connect().execute("SELECT COUNT(*) FROM work_orders WHERE warranty_of=?", (wid,)).fetchone()[0] == 2
+    # Vanlig utlämning startar garanti
+    adm.post(f"/admin/ao/{gid}/status", data={"_csrf": tok, "status": "utlamnad"})
+    assert verkstad.connect().execute("SELECT warranty_until FROM work_orders WHERE id=?", (gid,)).fetchone()[0]
+    print("GARANTI- OCH POST-TESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
     test_labels()
     test_orders()
     test_finance()
+    test_warranty_post()
     print("ALLA TESTER OK")

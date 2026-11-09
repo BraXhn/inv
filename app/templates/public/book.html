@@ -3,7 +3,7 @@
 {% block title %}Boka service eller reparation – {{ S.business_name }}{% endblock %}
 {% macro price(s) %}{% if s.price_from is not none %}{{ '' if s.price_fixed else 'från ' }}{{ s.price_from|money }}{% else %}Offert{% endif %}{% endmacro %}
 {% block content %}
-{% set mode = form.get('dropoff_mode') or ('tid' if slots else 'overens') %}
+{% set mode = form.get('dropoff_mode') or ('tid' if slots else 'overens' if allow_agree else 'post') %}
 {% set chosen_ready = form.get('ready_date') or ready.standard %}
 <div class="page-title">
   <h1>Boka service eller reparation</h1>
@@ -12,7 +12,7 @@
 
 {% if errors %}<ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
 
-{% if not slots and not allow_agree %}
+{% if not slots and not allow_agree and not allow_post %}
 <div class="step pub-narrow"><p class="mb0">Det går inte att beställa just nu. {% if S.contact_email %}Mejla <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a> så hjälper vi dig.{% endif %}</p></div>
 {% else %}
 <form method="post" id="booking" class="book-layout" novalidate data-ready-url="{{ url_for('ready_json') }}">
@@ -72,7 +72,27 @@
       <div class="tile"><input type="radio" name="dropoff_mode" id="dm-overens" value="overens" {{ 'checked' if mode == 'overens' }}>
         <label for="dm-overens">{{ icon('phone') }}<span class="txt">Enligt överenskommelse<span class="desc">Vi kontaktar dig och bestämmer tid.</span></span></label></div>
       {% endif %}
+      {% if allow_post %}
+      <div class="tile"><input type="radio" name="dropoff_mode" id="dm-post" value="post" {{ 'checked' if mode == 'post' }}>
+        <label for="dm-post">{{ icon('box') }}<span class="txt">Skicka med post<span class="desc">Bor du längre bort? Skicka in paketet.</span></span></label></div>
+      {% endif %}
     </div>
+    {% if allow_post %}
+    <div class="post-box mt" data-dropoff="post">
+      <p class="help">Du skickar paketet själv, spårbart. Adress och följesedel får du direkt efter beställningen. Räkna med {{ transit_days }} arbetsdagar innan paketet är framme.</p>
+      <label>Hur får du tillbaka det?</label>
+      <div class="tiles">
+        <div class="tile"><input type="radio" name="return_method" id="rm-post" value="post" {{ 'checked' if form.get('return_method', 'post') == 'post' }}>
+          <label for="rm-post"><span class="txt">Skickas tillbaka<span class="desc">Returfrakt {{ return_fee|money }}, spårbart.</span></span></label></div>
+        <div class="tile"><input type="radio" name="return_method" id="rm-hamtas" value="hamtas" {{ 'checked' if form.get('return_method') == 'hamtas' }}>
+          <label for="rm-hamtas"><span class="txt">Jag hämtar själv<span class="desc">Ingen returfrakt.</span></span></label></div>
+      </div>
+      <div data-return="post">
+        <label for="address">Returadress <span class="muted">(gata, postnummer och ort)</span></label>
+        <textarea id="address" name="address" maxlength="300" rows="2" autocomplete="street-address">{{ form.get('address', '') }}</textarea>
+      </div>
+    </div>
+    {% endif %}
     {% if slots %}
     <div class="dropoff-slots mt" data-dropoff="tid">
       <div class="days js-only" role="radiogroup" aria-label="Dag">
@@ -126,6 +146,8 @@
     </div>
     <label class="check mt"><input type="checkbox" name="consent" value="1" {{ 'checked' if form.get('consent') }} required>
       <span>Jag godkänner att mina uppgifter sparas för att hantera beställningen. <a href="{{ url_for('privacy') }}" target="_blank">Så hanterar vi dem</a></span></label>
+    <label class="check"><input type="checkbox" name="early_start" value="1" {{ 'checked' if form.get('early_start') }} required>
+      <span>Jag vill att ni börjar direkt och inte väntar ut ångerfristen på 14 dagar. Jag vet att ångerrätten upphör när arbetet är klart, och att jag betalar för det som hunnit göras om jag ångrar mig innan dess.</span></label>
   </section>
   </div>
 

@@ -2,6 +2,14 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.3: garantier och insändning med post
+
+- **Garanti** startar när ärendet lämnas ut eller skickas tillbaka (standard 3 månader, Inställningar → Bokning). Datum och text står på kundens sida, kvitto och faktura. Texten säger att garantin inte begränsar konsumenttjänstlagens treåriga reklamationsrätt – låt den stå kvar.
+- **Garantiärenden:** kunden anmäler fel från sin statussida, eller du skapar ärendet från arbetsordern. Det nya ärendet kopplas till originalet, saknar timpris och märks med en sköld.
+- **Skicka med post:** kunden väljer post vid beställning, får adress, packråd och en följesedel med referens (B-0001) och anger själv spårningsnummer. Transportdagarna läggs på klardatumet.
+- **Retur:** kunden väljer att hämta eller få tillbaka med post (returfrakt läggs som rad). "Skicka retur" på arbetsordern sparar spårningsnummer, sätter Utlämnad och mejlar kunden.
+- **Ångerrätt:** beställningen kräver att kunden ber om att arbetet börjar direkt (distansavtal, 14 dagars ångerfrist). Tidpunkten sparas på beställningen.
+
 ## Nytt i 3.2: kvitton, fakturor och utgifter
 - **Kvitto vid utlämning:** välj betalsätt (Swish, kort, kontant …) på ärendet så skapas ett numrerat kvitto. Kunden kan få det som mejl.
 - **Faktura:** kräver kundens adress. Fakturan får förfallodag enligt dina betalningsvillkor och betalningsuppgifter (bankgiro, plusgiro, Swish) med fakturanumret som referens. Kunden får en länk där fakturan kan skrivas ut eller sparas som PDF.
