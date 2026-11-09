@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="{% block robots %}noindex{% endblock %}">
-<meta name="theme-color" content="{{ S.accent_color or '#1f6f5c' }}">
+<meta name="theme-color" content="#1f2328">
 <title>{% block title %}{{ S.business_name }}{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ VERSION }}">
 <link rel="stylesheet" href="{{ url_for('theme_css') }}?v={{ (S.accent_color or '')|replace('#', '') }}">

@@ -15,7 +15,7 @@
   <label class="check"><input type="checkbox" name="lagt" value="1" {{ 'checked' if only_low }}> <span>Bara lågt saldo</span></label>
   <button>Filtrera</button>
 </form>
-<p class="small muted">Lagervärde (inköp): {{ value|money }} · {{ rows|length }} artiklar</p>
+<p class="small muted">Lagervärde (inköp): {{ value|money }}, {{ rows|length }} artiklar</p>
 <div class="card table-wrap"><table>
   <tr><th>Namn</th><th>Kategori</th><th>Plats</th><th class="right">Saldo</th><th class="right">Pris</th></tr>
   {% for p in rows %}

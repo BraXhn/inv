@@ -26,7 +26,7 @@
     </form>
     <div class="card">
       <h2>GDPR</h2>
-      <p class="small muted">Kund sedan {{ c.created_at|d }} · senast aktiv {{ (c.last_activity or c.created_at)|d }}</p>
+      <p class="small muted">Kund sedan {{ c.created_at|d }}, senast aktiv {{ (c.last_activity or c.created_at)|d }}</p>
       <p><a class="btn ghost small" href="{{ url_for('customer_export', cid=c.id) }}">Exportera kunddata (JSON)</a></p>
       <form method="post" action="{{ url_for('customer_anonymize', cid=c.id) }}">{{ csrf() }}
         <button class="danger small" data-confirm="Anonymisera kunden? Personuppgifterna raderas permanent.">Radera personuppgifter</button></form>

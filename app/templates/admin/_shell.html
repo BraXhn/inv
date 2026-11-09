@@ -7,7 +7,7 @@
 {% block body %}
 <div class="shell">
   <aside class="side no-print">
-    <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('wrench') }}</span><span>{{ S.business_name }}<small>Verkstadssystem</small></span></a>
+    <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">{{ icon('wrench') }}</span><span>{{ S.business_name }}<small>Garage och verkstad</small></span></a>
     <nav class="nav">
       {{ navlink('dashboard', 'Översikt', 'home', ep == 'dashboard') }}
       {{ navlink('board', 'Tavla', 'board', ep == 'board', nav_timers, True) }}
@@ -16,8 +16,8 @@
       {{ navlink('customers_list', 'Kunder', 'users', ep.startswith('customer')) }}
       <div class="nav-sep"></div>
       {{ navlink('parts_list', 'Lager', 'box', ep.startswith('part') or ep == 'shopping_list') }}
-      {{ navlink('locations_list', 'Platser & taggar', 'pin', ep.startswith('location') or ep == 'labels') }}
-      {{ navlink('services_admin', 'Tjänster & priser', 'tag', ep == 'services_admin') }}
+      {{ navlink('locations_list', 'Platser och taggar', 'pin', ep.startswith('location') or ep == 'labels') }}
+      {{ navlink('services_admin', 'Tjänster och priser', 'tag', ep == 'services_admin') }}
     </nav>
     <div class="grow"></div>
     <nav class="nav">

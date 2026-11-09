@@ -7,7 +7,7 @@
     <div>
       <h1>{{ 'Specifikation' if kind == 'faktura' else 'Inlämningskvitto' }}</h1>
       <b>{{ S.business_name }}</b><br>
-      <span class="small">{{ S.address }}{% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}{% if S.contact_email %} · {{ S.contact_email }}{% endif %}</span>
+      <span class="small">{{ S.address }}{% if S.contact_phone %}, {{ S.contact_phone }}{% endif %}{% if S.contact_email %}, {{ S.contact_email }}{% endif %}</span>
     </div>
     <div class="qrbox">{{ qr_svg(status_url) }}<div class="small">Följ ärendet</div></div>
   </div>

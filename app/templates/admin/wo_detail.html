@@ -6,7 +6,7 @@
   <div>
     <div class="row"><span class="mono muted">{{ wo.number }}</span><span class="pill {{ wo.status }}">{{ WO_STATUS_LABEL[wo.status] }}</span>{% if wo.timer_started_at %}<span class="pill live">Timer</span>{% endif %}</div>
     <h1>{{ wo.item }}</h1>
-    <div class="sub">{{ wo.customer_name }} · inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %} · {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
+    <div class="sub">{{ wo.customer_name }}, inlämnad {{ wo.created_at|dt }}{% if wo.due_date %}, utlovad {{ wo.due_date|d }}{% endif %}{% if wo.loc %}, {{ icon('pin') }} {{ wo.loc }}{% endif %}</div>
   </div>
   <div class="actions">
     {% if label_printer %}<form method="post" action="{{ url_for('label_print', kind='ao', oid=wo.id) }}" class="inline">{{ csrf() }}<button class="ghost small">{{ icon('tag') }} Objektlapp</button></form>{% endif %}
@@ -20,7 +20,7 @@
   <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}">
     {{ csrf() }}<input type="hidden" name="status" value="{{ st }}">
     {% if mail and wo.customer_email and st in ('offert', 'klar') %}<input type="hidden" name="notify" value="1">{% endif %}
-    <button class="{{ '' if primary else 'ghost' }}">{% if primary %}{{ icon('arrow') }}{% endif %} {{ label }}</button>
+    <button class="{{ '' if primary else 'ghost' }}">{{ label }}</button>
   </form>
   {% endfor %}
   {% if wo.status not in ('utlamnad', 'avbruten') %}
@@ -163,7 +163,7 @@
       <button class="small">Lägg till</button>
     </form>
     <ul class="timeline mt">
-      {% for e in events %}<li class="{{ '' if e.public else 'private' }}"><span class="small muted">{{ e.created_at|dt }}{% if not e.public %} · intern{% endif %}</span><br>{{ e.text }}</li>{% endfor %}
+      {% for e in events %}<li class="{{ '' if e.public else 'private' }}"><span class="small muted">{{ e.created_at|dt }}{% if not e.public %}, intern{% endif %}</span><br>{{ e.text }}</li>{% endfor %}
     </ul>
   </div>
 </div>

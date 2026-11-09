@@ -4,10 +4,9 @@
   {% for cat, m in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }} no-print">{{ icon('alert' if cat == 'error' else 'check') }}<span>{{ m }}</span></div>{% endfor %}
   {% block content %}{% endblock %}
   <footer class="footer">
-    <b>{{ S.business_name }}</b>{% if S.address %} · {{ S.address }}{% endif %}
-    {% if S.contact_phone %} · <a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}
-    {% if S.contact_email %} · <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}
-    <br><a href="{{ url_for('book') }}">Boka tid</a> · <a href="{{ url_for('privacy') }}">Integritet</a>
+    <b>{{ S.business_name }}</b>{% if S.address %}<br>{{ S.address }}{% endif %}
+    {% if S.contact_phone or S.contact_email %}<br>{% if S.contact_phone %}<a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% endif %}{% if S.contact_phone and S.contact_email %}, {% endif %}{% if S.contact_email %}<a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>{% endif %}{% endif %}
+    <p class="mt mb0"><a href="{{ url_for('book') }}">Boka tid</a>&emsp;<a href="{{ url_for('privacy') }}">Så hanterar vi dina uppgifter</a></p>
   </footer>
 </main>
 {% endblock %}

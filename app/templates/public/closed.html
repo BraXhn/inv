@@ -1,5 +1,5 @@
 {% extends "public/_layout.html" %}
 {% block content %}
-<header class="hero"><div class="logo">{{ icon('wrench') }}</div><h1>{{ S.business_name }}</h1></header>
+<header class="masthead"><div class="mark">{{ icon('wrench') }}</div><h1>{{ S.business_name }}</h1></header>
 <div class="step"><p>Bokningen är stängd just nu.{% if S.contact_email %} Kontakta oss på <a href="mailto:{{ S.contact_email }}">{{ S.contact_email }}</a>.{% endif %}</p></div>
 {% endblock %}

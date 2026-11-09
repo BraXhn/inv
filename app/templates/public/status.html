@@ -1,10 +1,7 @@
 {% extends "public/_layout.html" %}
 {% block title %}Din bokning – {{ S.business_name }}{% endblock %}
 {% block content %}
-<header class="hero">
-  <div class="logo">{{ icon('wrench') }}</div>
-  <h1>{{ S.business_name }}</h1>
-</header>
+<header class="masthead"><div class="mark">{{ icon('wrench') }}</div><h1>{{ S.business_name }}</h1></header>
 
 {% if wo %}
   {% set order = ['inlamnad','felsokning','pagar','klar','utlamnad'] %}
@@ -22,11 +19,11 @@
 
   {% if wo.status == 'offert' %}
   <section class="step card accent">
-    <div class="step-head"><span class="step-num">{{ icon('tag') }}</span><h2>Offert: {{ wo.price_quote|money }}</h2></div>
+    <h2>Offert: {{ wo.price_quote|money }}</h2>
     {% if wo.diagnosis %}<p>{{ wo.diagnosis }}</p>{% endif %}
     <form method="post" action="{{ url_for('approve_quote', token=token) }}">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-      <button class="lg block" data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">{{ icon('check') }} Godkänn och starta reparationen</button>
+      <button class="lg block" data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">Godkänn och starta reparationen</button>
     </form>
     <p class="help center mt">Vill du inte gå vidare? {% if S.contact_phone %}Ring <a href="tel:{{ S.contact_phone }}">{{ S.contact_phone }}</a>{% else %}Kontakta oss{% endif %} så löser vi det.</p>
   </section>
@@ -76,7 +73,7 @@
     </dl>
     {% if booking.status in ('ny', 'bekraftad') %}
     <div class="actions mt">
-      <a class="btn" href="{{ url_for('booking_ics', token=token) }}">{{ icon('calendar') }} Lägg till i kalendern</a>
+      <a class="btn" href="{{ url_for('booking_ics', token=token) }}">Lägg till i kalendern</a>
       <form method="post" action="{{ url_for('cancel_booking', token=token) }}" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <button class="danger" data-confirm="Vill du avboka tiden?">Avboka</button>

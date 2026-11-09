@@ -3,15 +3,11 @@
 {% block title %}Boka tid – {{ S.business_name }}{% endblock %}
 {% macro price(s) %}{% if s.price_from is not none %}{{ '' if s.price_fixed else 'från ' }}{{ s.price_from|money }}{% else %}Offert{% endif %}{% endmacro %}
 {% block content %}
-<header class="hero">
-  <div class="logo">{{ icon('wrench') }}</div>
+<header class="masthead">
+  <div class="mark">{{ icon('wrench') }}</div>
   <h1>{{ S.business_name }}</h1>
   <p>{{ S.booking_intro or S.tagline }}</p>
-  <div class="trust">
-    {% if hours %}<span>{{ icon('clock') }}{{ hours }}</span>{% endif %}
-    {% if S.address %}<span>{{ icon('pin') }}{{ S.address }}</span>{% endif %}
-    <span>{{ icon('shield') }}Offert innan vi reparerar</span>
-  </div>
+  <div class="facts">{% if hours %}<span>Öppet {{ hours }}</span>{% endif %}{% if S.address %}<span>{{ S.address }}</span>{% endif %}<span>Offert innan vi reparerar</span></div>
 </header>
 
 {% if errors %}<ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
@@ -26,7 +22,7 @@
   <div class="hp" aria-hidden="true"><label>Lämna tomt <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 
   <section class="step" data-step="what">
-    <div class="step-head"><span class="step-num">1</span><h2>Vad vill du lämna in?</h2></div>
+    <div class="step-head"><span class="step-num">1</span><h2>Vad gäller det?</h2></div>
     <div class="tiles">
       {% for c in categories %}
       <div class="tile">
@@ -37,7 +33,7 @@
     </div>
 
     {% if services %}
-    <p class="help js-only" id="svc-hint">Välj typ ovan så visas våra tjänster.</p>
+    <p class="help js-only" id="svc-hint">Välj cykel eller elektronik så visas tjänster och priser.</p>
     {% for c in categories %}
       {% set group = services|selectattr('category', 'equalto', c)|list %}
       {% if group %}
@@ -53,7 +49,7 @@
           {% endfor %}
           <div class="tile">
             <input type="radio" name="service_id" id="svc-annat-{{ loop.index }}" value="" {{ 'checked' if form.get('service_id') == '' and form.get('category') == c }}>
-            <label for="svc-annat-{{ loop.index }}" data-label="Annat"><span class="txt">Annat / vet inte<span class="desc">Beskriv nedan så hjälper vi dig.</span></span></label>
+            <label for="svc-annat-{{ loop.index }}" data-label="Annat"><span class="txt">Något annat<span class="desc">Beskriv felet nedan.</span></span></label>
           </div>
         </div>
       </div>
@@ -108,8 +104,8 @@
 
   <div class="summary">
     <div class="summary-in">
-      <div class="what"><b id="sum-when">Välj en tid ovan</b><span id="sum-what">Fyll i formuläret och skicka</span></div>
-      <button type="submit" class="lg">Boka</button>
+      <div class="what"><b id="sum-when">Ingen tid vald</b><span id="sum-what">Välj vad det gäller och en tid</span></div>
+      <button type="submit" class="lg">Boka tiden</button>
     </div>
   </div>
 </form>

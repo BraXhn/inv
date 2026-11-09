@@ -3,7 +3,7 @@
 {% block title %}Tavla – {{ S.business_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Tavla</h1><div class="sub">Flytta ärenden med knapparna. Kunden ser ändringen direkt{% if mail %} och får e-post vid offert och klart{% endif %}.</div></div>
+  <div><h1>Tavlan</h1><div class="sub">Knapparna flyttar ärendet ett steg. Kunden ser ändringen på sin statussida{% if mail %} och får mejl vid offert och när det är klart{% endif %}.</div></div>
   <a class="btn" href="{{ url_for('wo_new') }}">{{ icon('plus') }} Ny inlämning</a>
 </div>
 <div class="board">
@@ -14,7 +14,7 @@
     <article class="wo-card">
       <div class="top"><span class="mono">{{ w.number }}</span><span>{{ w.created_at|age }}</span></div>
       <a class="t" href="{{ url_for('wo_detail', wid=w.id) }}">{{ w.item }}</a>
-      <div class="who">{{ w.customer_name }}{% if w.loc %} · {{ icon('pin') }} {{ w.loc }}{% endif %}</div>
+      <div class="who">{{ w.customer_name }}{% if w.loc %}, {{ icon('pin') }} {{ w.loc }}{% endif %}</div>
       <div class="tags">
         <span class="chip">{{ w.category }}</span>
         {% if w.timer_started_at %}<span class="chip live">{{ icon('clock') }} <span data-since="{{ w.timer_started_at }}">{{ w.timer_started_at|age }}</span></span>{% endif %}

@@ -28,7 +28,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -103,7 +103,7 @@ DEFAULT_SETTINGS = {
     "min_notice_hours": "12",
     "blocked_dates": "",
     "retention_months": "24",
-    "accent_color": "#1f6f5c",
+    "accent_color": "#f5c400",
     "response_promise": "Vi bekräftar din tid inom ett dygn.",
     "tagline": "Cykelservice och elektronikreparationer",
     "print_on_intake": "1",
@@ -305,6 +305,10 @@ def init_db():
             log.info("Migrering: %s.%s", table, col)
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
+    if not conn.execute("SELECT value FROM settings WHERE key='design_v3'").fetchone():
+        # Ny visuell identitet: byt bara den gamla standardfärgen, inte en färg användaren valt själv
+        conn.execute("UPDATE settings SET value='#f5c400' WHERE key='accent_color' AND lower(value)='#1f6f5c'")
+        conn.execute("INSERT INTO settings(key, value) VALUES ('design_v3', '1')")
     if not conn.execute("SELECT value FROM settings WHERE key='services_seeded'").fetchone():
         if not conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]:
             conn.executemany("INSERT INTO services(category, name, description, sort) VALUES (?,?,?,?)",
@@ -367,7 +371,13 @@ def opening_hours_text():
 
 def safe_color(val):
     import re
-    return val if isinstance(val, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", val) else "#1f6f5c"
+    return val if isinstance(val, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", val) else "#f5c400"
+
+
+def color_luminance(hexcolor):
+    r, g, b = (int(hexcolor[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    lin = [(c / 12.92) if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 
 
 def new_tag():
@@ -605,7 +615,7 @@ def render_mail(heading, paragraphs=(), details=(), button=None, links=(), prehe
     if note:
         parts += ["", note]
     footer = [s["business_name"], s.get("address", ""), s.get("contact_phone", ""), s.get("contact_email", "")]
-    parts += ["", "–", " · ".join(f for f in footer if f)]
+    parts += ["", "–", ", ".join(f for f in footer if f)]
     return "\n".join(parts), html
 
 
@@ -761,7 +771,12 @@ def inject_globals():
 @app.route("/theme.css")
 def theme_css():
     color = safe_color(settings().get("accent_color"))
-    css = f":root{{--accent:{color};}}@media (prefers-color-scheme: dark){{:root{{--accent:{color};}}}}"
+    light = color_luminance(color) > 0.4
+    on = "#1f2328" if light else "#ffffff"
+    # Ljus accent (gult) blir oläslig som text på vitt – mörkna den för text, behåll den för ytor
+    text = f"color-mix(in srgb, {color} 45%, #000)" if light else color
+    css = (f":root{{--accent:{color};--on-accent:{on};--accent-text:{text};}}"
+           f"@media (prefers-color-scheme: dark){{:root{{--accent-text:{color};}}}}")
     return Response(css, mimetype="text/css", headers={"Cache-Control": "no-cache"})
 
 
@@ -1156,6 +1171,7 @@ def dashboard():
     n = now()
     now_text = f"{full_days[n.weekday()].capitalize()} {n.day} {full_months[n.month - 1]}"
     return render_template("admin/dashboard.html", greeting=greeting, now_text=now_text,
+                           month_name=full_months[n.month - 1],
                            counts=counts, todays=todays, new_bookings=new_bookings,
                            upcoming=upcoming, timers=timers, attention=attention, low=low, revenue=revenue,
                            closed_count=len(closed_month), hours=hours, open_count=open_count)

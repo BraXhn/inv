@@ -3,7 +3,7 @@
 {% block title %}{{ p.name }}{% endblock %}
 {% block content %}
 <div class="spread">
-  <div><h1>{{ p.name }}</h1><span class="small muted">{{ p.category or '' }}{% if p.loc %} · {{ p.loc }}{% endif %}</span></div>
+  <div><h1>{{ p.name }}</h1><span class="small muted">{{ p.category or '' }}{% if p.loc %}, {{ p.loc }}{% endif %}</span></div>
   <div class="stat"><b>{{ p.qty|qty }} {{ p.unit }}</b><span>{% if p.min_qty and p.qty <= p.min_qty %}Under beställningspunkt ({{ p.min_qty|qty }}){% else %}i lager{% endif %}</span></div>
 </div>
 <div class="grid-2">

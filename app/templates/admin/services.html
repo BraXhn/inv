@@ -2,7 +2,7 @@
 {% from "admin/_macros.html" import csrf %}
 {% block title %}Tjänster & priser{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Tjänster & priser</h1><div class="sub">Visas på bokningssidan. Tomt pris = ”Offert”. Fast pris läggs automatiskt på ärendet vid inlämning.</div></div></div>
+<div class="page-head"><div><h1>Tjänster och priser</h1><div class="sub">Det här ser kunden på bokningssidan. Utan pris står det ”Offert”. Ett fast pris läggs på ärendet direkt när det tas emot.</div></div></div>
 
 {% for s in rows %}
 <form method="post" class="card">
@@ -26,7 +26,7 @@
 
 <form method="post" class="card accent">
   {{ csrf() }}
-  <h2>{{ icon('plus') }} Ny tjänst</h2>
+  <h2>Ny tjänst</h2>
   <div class="fields">
     <div><label>Namn</label><input type="text" name="name" maxlength="120" required></div>
     <div><label>Kategori</label><select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>

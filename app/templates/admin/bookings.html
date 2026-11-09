@@ -18,8 +18,8 @@
   </div>
   <p><b>{{ b.category }}: {{ b.item }}</b><br>{{ b.description }}</p>
   <p class="small"><a href="{{ url_for('customer_detail', cid=b.customer_id) }}">{{ b.name }}</a>
-    {% if b.email %} · <a href="mailto:{{ b.email }}">{{ b.email }}</a>{% endif %}
-    {% if b.phone %} · <a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% endif %}</p>
+    {% if b.email %}, <a href="mailto:{{ b.email }}">{{ b.email }}</a>{% endif %}
+    {% if b.phone %}, <a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% endif %}</p>
   <div class="row">
     {% if b.status == 'ny' %}
       <form method="post" action="{{ url_for('booking_status', bid=b.id) }}" class="inline">{{ csrf() }}<input type="hidden" name="action" value="bekrafta"><button class="small">Bekräfta</button></form>

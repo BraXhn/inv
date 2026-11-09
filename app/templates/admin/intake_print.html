@@ -6,7 +6,7 @@
   <div><h1>{{ wo.number }} är mottagen</h1><div class="sub">Skriv ut, ge kunden sedeln och fäst lappen på {{ wo.item }}.</div></div>
   <div class="actions">
     <button data-print>{{ icon('printer') }} Skriv ut</button>
-    <a class="btn ghost" href="{{ url_for('wo_detail', wid=wo.id) }}">Till ärendet {{ icon('arrow') }}</a>
+    <a class="btn ghost" href="{{ url_for('wo_detail', wid=wo.id) }}">Till ärendet</a>
   </div>
 </div>
 <div class="card no-print row">
@@ -36,7 +36,7 @@
     <header class="t-head">
       <div>
         <div class="t-brand">{{ S.business_name }}</div>
-        <div class="t-small">{{ S.address }}{% if S.contact_phone %} · {{ S.contact_phone }}{% endif %}{% if S.contact_email %} · {{ S.contact_email }}{% endif %}</div>
+        <div class="t-small">{{ S.address }}{% if S.contact_phone %}, {{ S.contact_phone }}{% endif %}{% if S.contact_email %}, {{ S.contact_email }}{% endif %}</div>
       </div>
       <div class="t-title">Mottagningssedel</div>
     </header>
@@ -46,13 +46,13 @@
         <div class="t-label">Ärendenummer</div>
         <div class="t-number">{{ wo.number }}</div>
         <div class="t-codebox"><div class="t-label">Hämtkod</div><div class="t-code">{{ wo.pickup_code }}</div></div>
-        <div class="t-small">Inlämnad {{ wo.created_at|dt }}{% if wo.due_date %} · beräknas klar {{ wo.due_date|d }}{% endif %}</div>
+        <div class="t-small">Inlämnad {{ wo.created_at|dt }}{% if wo.due_date %}, beräknas klar {{ wo.due_date|d }}{% endif %}</div>
       </div>
       <div class="t-qr">{{ qr_svg(status_url) }}<div class="t-small">Skanna för att följa ärendet</div></div>
     </div>
 
     <table class="t-table">
-      <tr><th>Kund</th><td>{{ wo.customer_name }}{% if wo.customer_phone %} · {{ wo.customer_phone }}{% endif %}</td></tr>
+      <tr><th>Kund</th><td>{{ wo.customer_name }}{% if wo.customer_phone %}, {{ wo.customer_phone }}{% endif %}</td></tr>
       <tr><th>Objekt</th><td>{{ wo.category }}: <b>{{ wo.item }}</b></td></tr>
       <tr><th>Ram-/serienr</th><td>{{ wo.serial or '–' }}</td></tr>
       <tr><th>Medlämnat</th><td>{{ wo.accessories or 'Inget' }}</td></tr>
@@ -73,8 +73,8 @@
     <div class="o-body">
       <div class="o-number">{{ wo.number }}</div>
       <div class="o-item">{{ wo.item }}</div>
-      <div class="o-meta">{{ wo.customer_name }}{% if wo.customer_phone %} · tel …{{ wo.customer_phone[-4:] }}{% endif %}</div>
-      <div class="o-meta">{{ wo.category }} · inl. {{ wo.created_at[:10] }}{% if wo.serial %} · {{ wo.serial }}{% endif %}</div>
+      <div class="o-meta">{{ wo.customer_name }}{% if wo.customer_phone %}, tel …{{ wo.customer_phone[-4:] }}{% endif %}</div>
+      <div class="o-meta">{{ wo.category }}, inl. {{ wo.created_at[:10] }}{% if wo.serial %}, {{ wo.serial }}{% endif %}</div>
       {% if wo.accessories %}<div class="o-meta">Medlämnat: {{ wo.accessories }}</div>{% endif %}
       <div class="o-code">{{ wo.tag_code }}</div>
     </div>
