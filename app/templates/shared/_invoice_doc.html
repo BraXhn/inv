@@ -1,0 +1,68 @@
+{# Själva fakturan/kvittot. Används i admin och på kundens länk. Låst kopia: allt kommer från dokumentet. #}
+<article class="invoice-doc">
+  <header class="inv-head">
+    <div>
+      <div class="inv-seller">{{ seller.company_name or seller.business_name }}</div>
+      <div class="inv-small">{{ seller.address }}</div>
+      <div class="inv-small">{% if seller.org_number %}Org.nr {{ seller.org_number }}{% endif %}{% if seller.vat_registered == '1' and seller.vat_number %}{% if seller.org_number %}, {% endif %}Momsreg.nr {{ seller.vat_number }}{% endif %}</div>
+      {% if seller.f_skatt == '1' %}<div class="inv-small">Godkänd för F-skatt</div>{% endif %}
+    </div>
+    <div class="inv-title">
+      <h1>{{ KIND_LABEL[inv.kind] }}</h1>
+      <dl>
+        <dt>Nummer</dt><dd>{{ inv.number }}</dd>
+        <dt>Datum</dt><dd>{{ inv.issue_date }}</dd>
+        {% if inv.due_date %}<dt>Förfallodag</dt><dd>{{ inv.due_date }}</dd>{% endif %}
+        {% if inv.kind == 'kvitto' and inv.payment_method %}<dt>Betalt med</dt><dd>{{ PAYMENT_LABEL.get(inv.payment_method, inv.payment_method) }}</dd>{% endif %}
+      </dl>
+    </div>
+  </header>
+
+  <section class="inv-parties">
+    <div>
+      <div class="inv-label">Kund</div>
+      <b>{{ inv.cust_name }}</b>
+      {% if inv.cust_org %}<div>{{ inv.cust_org }}</div>{% endif %}
+      {% if inv.cust_address %}<div class="inv-pre">{{ inv.cust_address }}</div>{% endif %}
+    </div>
+    {% if inv.note %}<div><div class="inv-label">Avser</div>{{ inv.note }}</div>{% endif %}
+  </section>
+
+  <table class="inv-lines">
+    <thead><tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th>{% if inv.vat_registered %}<th class="right">Moms</th>{% endif %}<th class="right">Belopp</th></tr></thead>
+    <tbody>
+    {% for l in lines %}
+      <tr><td>{{ l.description }}</td><td class="right">{{ l.qty|qty }}</td><td class="right nowrap">{{ l.unit_price|money }}</td>
+        {% if inv.vat_registered %}<td class="right">{{ l.vat_rate|int }} %</td>{% endif %}<td class="right nowrap">{{ l.total|money }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="inv-totals">
+    <dl>
+      {% if inv.vat_registered %}
+        <dt>Netto</dt><dd>{{ inv.net_total|money }}</dd>
+        {% for rate, v in vat_summary %}<dt>Moms {{ rate|int }} % (på {{ v[0]|money }})</dt><dd>{{ v[1]|money }}</dd>{% endfor %}
+      {% endif %}
+      <dt class="grand">{{ 'Att betala' if inv.status == 'obetald' else ('Att återfå' if inv.kind == 'kredit' else 'Totalt') }}</dt><dd class="grand">{{ inv.total|money }}</dd>
+    </dl>
+  </div>
+
+  {% if inv.kind == 'faktura' and inv.status == 'obetald' %}
+  <section class="inv-pay">
+    <div class="inv-label">Betalning</div>
+    <p>Betala senast <b>{{ inv.due_date }}</b> och ange <b>{{ inv.number }}</b> som referens.</p>
+    <p>{% if seller.bankgiro %}Bankgiro {{ seller.bankgiro }}{% endif %}{% if seller.bankgiro and (seller.plusgiro or seller.swish_number) %}<br>{% endif %}{% if seller.plusgiro %}Plusgiro {{ seller.plusgiro }}{% endif %}{% if seller.plusgiro and seller.swish_number %}<br>{% endif %}{% if seller.swish_number %}Swish {{ seller.swish_number }}{% endif %}</p>
+  </section>
+  {% elif inv.status == 'betald' %}
+  <p class="inv-paid">Betald {{ (inv.paid_at or '')[:10] }}{% if inv.payment_method %} med {{ PAYMENT_LABEL.get(inv.payment_method, '')|lower }}{% endif %}. Tack!</p>
+  {% elif inv.status == 'krediterad' and inv.kind != 'kredit' %}
+  <p class="inv-paid">Den här fakturan är krediterad och ska inte betalas.</p>
+  {% endif %}
+
+  <footer class="inv-foot">
+    {% if seller.vat_registered != '1' %}<p>Säljaren är inte registrerad för mervärdesskatt.</p>{% endif %}
+    {% if inv.kind == 'faktura' and seller.invoice_note %}<p>{{ seller.invoice_note }}</p>{% endif %}
+    <p>{{ seller.company_name or seller.business_name }}{% if seller.contact_phone %}, {{ seller.contact_phone }}{% endif %}{% if seller.contact_email %}, {{ seller.contact_email }}{% endif %}</p>
+  </footer>
+</article>

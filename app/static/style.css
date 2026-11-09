@@ -466,3 +466,34 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .dropoff-slots.hide { display: none; }
 
 .dt-input { width: auto !important; min-width: 220px; }
+
+/* ================= Faktura / kvitto ================= */
+.invoice-sheet { padding: 12mm; }
+.invoice-doc { background: #fff; color: #111; font-size: 10.5pt; line-height: 1.45; max-width: 190mm; margin: 0 auto; }
+.pub > .invoice-doc { padding: 12mm; border-radius: 8px; box-shadow: var(--shadow-md); margin-top: 1rem; }
+.invoice-doc h1 { color: #111; font-size: 20pt; letter-spacing: -.02em; margin: 0 0 3mm; }
+.inv-head { display: flex; justify-content: space-between; gap: 10mm; padding-bottom: 5mm; border-bottom: 1.5px solid #111; }
+.inv-seller { font-size: 14pt; font-weight: 700; letter-spacing: -.01em; margin-bottom: 1mm; }
+.inv-small { font-size: 9pt; color: #444; }
+.inv-title { text-align: right; }
+.inv-title dl, .inv-totals dl { display: grid; grid-template-columns: auto auto; gap: 1mm 6mm; margin: 0; justify-content: end; }
+.inv-title dt, .inv-totals dt { color: #555; }
+.inv-title dd, .inv-totals dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inv-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin: 6mm 0; }
+.inv-label { font-size: 8.5pt; color: #666; font-weight: 600; margin-bottom: 1mm; }
+.inv-pre { white-space: pre-line; }
+.inv-lines { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+.inv-lines th { color: #555; font-weight: 600; font-size: 9pt; border-bottom: 1.5px solid #111; padding: 2mm 1.5mm; background: none; }
+.inv-lines td { border-bottom: 1px solid #e3e3e3; padding: 2.2mm 1.5mm; color: #111; }
+.inv-totals { display: flex; justify-content: flex-end; margin-bottom: 6mm; }
+.inv-totals .grand { font-size: 13pt; font-weight: 700; color: #111; border-top: 1.5px solid #111; padding-top: 2mm; margin-top: 1mm; }
+.inv-pay { background: #f4f4f5; border-radius: 2mm; padding: 4mm 5mm; margin-bottom: 6mm; }
+.inv-pay p { margin: 0 0 1mm; }
+.inv-paid { font-weight: 600; margin-bottom: 6mm; }
+.inv-foot { border-top: 1px solid #ddd; padding-top: 3mm; font-size: 8.5pt; color: #555; }
+.inv-foot p { margin: 0 0 1mm; }
+.attach-preview { width: 100%; border-radius: 6px; }
+hr.sep { border: 0; border-top: 1px solid var(--line); margin: .8rem 0; }
+@media print { .invoice-sheet { padding: 0; } .pub > .invoice-doc { box-shadow: none; padding: 0; } }
+input[type=file] { width: 100%; font: inherit; color: var(--muted); padding: .55rem; border: 1px dashed var(--line-2); border-radius: var(--r-sm); background: var(--surface); }
+input[type=file]::file-selector-button { font: inherit; font-weight: 600; margin-right: .8rem; padding: .55rem 1rem; border-radius: var(--r-sm); border: 0; background: var(--primary); color: var(--on-primary); cursor: pointer; }

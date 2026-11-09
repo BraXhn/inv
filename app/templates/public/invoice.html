@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ KIND_LABEL[inv.kind] }} {{ inv.number }} – {{ seller.business_name }}{% endblock %}
+{% block body %}
+<main class="pub">
+  <p class="no-print mt actions"><button data-print>Skriv ut eller spara som PDF</button>{% if overdue %}<span class="pill fel">Förfallen</span>{% endif %}</p>
+  {% include "shared/_invoice_doc.html" %}
+</main>
+{% endblock %}

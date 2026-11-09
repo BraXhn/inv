@@ -178,6 +178,35 @@
     <p class="taglink mono">{{ status_url }}</p>
     <button type="button" class="ghost small" data-copy="{{ status_url }}">Kopiera</button>
   </div>
+  <div class="card" id="ekonomi">
+    <h2>Betalning</h2>
+    {% for i in invoices %}
+      <p class="spread mb0"><a href="{{ url_for('invoice_admin', iid=i.id) }}">{{ KIND_LABEL[i.kind] }} {{ i.number }}</a>
+        <span class="small">{{ i.total|money }} <span class="pill {{ 'skickat' if i.status == 'betald' else ('avbruten' if i.status == 'krediterad' else 'ny') }}">{{ i.status|capitalize }}</span></span></p>
+    {% endfor %}
+    {% set has_active = invoices|selectattr('status', 'ne', 'krediterad')|selectattr('kind', 'ne', 'kredit')|list %}
+    {% if not has_active %}
+      {% if invoices %}<hr class="sep">{% endif %}
+      <p class="help">Att betala: <b>{{ totals.total|money }}</b>. Raderna och arbetstiden ovan blir dokumentets rader.</p>
+      <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}" class="mt">
+        {{ csrf() }}<input type="hidden" name="kind" value="kvitto">
+        <label>Betalt på plats</label>
+        <div class="row"><select name="payment_method" class="dt-input" aria-label="Betalsätt">{% for k, l in PAYMENT_METHODS %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+          <button class="small">Skapa kvitto</button></div>
+        {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla kvittot</span></label>{% endif %}
+      </form>
+      <details class="mt">
+        <summary class="small">Skicka faktura istället</summary>
+        <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}">
+          {{ csrf() }}<input type="hidden" name="kind" value="faktura">
+          <label>Kundens adress</label><textarea name="address" rows="3" required placeholder="Gatuadress&#10;Postnummer ort">{{ wo.customer_address or '' }}</textarea>
+          <label>Org.nr <span class="muted">(företag, valfritt)</span></label><input type="text" name="org_number" value="{{ wo.customer_org or '' }}" maxlength="30">
+          {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla fakturan</span></label>{% endif %}
+          <p class="mt mb0"><button class="small">Skapa faktura ({{ S.payment_terms_days }} dagar)</button></p>
+        </form>
+      </details>
+    {% endif %}
+  </div>
   {{ tagbox(wo.tag_code, 'Tagg för objektet') }}
 </div>
 </div>

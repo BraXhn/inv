@@ -1,0 +1,67 @@
+{% extends "admin/_shell.html" %}
+{% block title %}Ekonomi – {{ label }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Ekonomi</h1><div class="sub"><a href="{{ url_for('finance_overview', m=prev) }}">Föregående</a>&emsp;<b>{{ label|capitalize }}</b>&emsp;<a href="{{ url_for('finance_overview', m=nxt) }}">Nästa</a></div></div>
+  <div class="actions"><a class="btn ghost" href="{{ url_for('invoices_list') }}">Fakturor och kvitton</a><a class="btn" href="{{ url_for('expense_form') }}">{{ icon('plus') }} Ny utgift</a></div>
+</div>
+
+<div class="strip">
+  <div><b>{{ billed|money }}</b><span>fakturerat{% if vat_on %}, varav moms {{ out_vat|money }}{% endif %}</span></div>
+  <div><b>{{ received|money }}</b><span>inbetalt</span></div>
+  <div><b>{{ spent|money }}</b><span>utgifter{% if vat_on %}, varav moms {{ in_vat|money }}{% endif %}</span></div>
+  <div class="{{ 'hot' if result > 0 else ('due' if result < 0 else '') }}"><b>{{ result|money }}</b><span>resultat före skatt, ungefär</span></div>
+</div>
+
+<div class="grid-2">
+  <div>
+    <div class="card flush">
+      <div class="card-head"><h2>Obetalda kundfakturor</h2><span class="muted small">{{ unpaid_total|money }}</span></div>
+      <ul class="list">
+        {% for i in unpaid[:10] %}
+        <li><div class="grow"><a class="title" href="{{ url_for('invoice_admin', iid=i.id) }}">Nr {{ i.number }}, {{ i.cust_name }}</a><span class="meta">Förfaller {{ i.due_date }}</span></div>
+          <b class="nowrap">{{ i.total|money }}</b>{% if i.due_date < today %}<span class="pill fel">Förfallen</span>{% endif %}</li>
+        {% else %}<li class="empty">Alla kundfakturor är betalda.</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="card flush">
+      <div class="card-head"><h2>Senaste fakturor och kvitton</h2><a class="small" href="{{ url_for('invoices_list') }}">Alla</a></div>
+      <ul class="list">
+        {% for i in recent %}
+        <li><div class="grow"><a class="title" href="{{ url_for('invoice_admin', iid=i.id) }}">{{ KIND_LABEL[i.kind] }} {{ i.number }}</a><span class="meta">{{ i.cust_name }}, {{ i.issue_date }}</span></div><b class="nowrap">{{ i.total|money }}</b></li>
+        {% else %}<li class="empty">Inga än. Skapa faktura eller kvitto från ett ärende.</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div>
+    <div class="card flush">
+      <div class="card-head"><h2>Att betala</h2><span class="muted small">{{ payables_total|money }}</span></div>
+      <ul class="list">
+        {% for e in payables[:10] %}
+        <li><div class="grow"><a class="title" href="{{ url_for('expense_form', eid=e.id) }}">{{ e.supplier }}</a><span class="meta">{% if e.due_date %}Förfaller {{ e.due_date }}{% else %}{{ e.date }}{% endif %}</span></div><b class="nowrap">{{ e.total|money }}</b></li>
+        {% else %}<li class="empty">Inga obetalda leverantörsfakturor.</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Utgifter per kategori</h2>
+      {% for cat, amt in by_cat %}<div class="spread small"><span>{{ cat }}</span><b>{{ amt|money }}</b></div>{% else %}<p class="muted mb0">Inga utgifter denna månad.</p>{% endfor %}
+      <p class="mt mb0"><a class="small" href="{{ url_for('expenses_list', m=m) }}">Visa månadens utgifter</a></p>
+    </div>
+    <div class="card">
+      <h2>Till redovisningen</h2>
+      <p class="help">Exportera för en period och skicka till din redovisningskonsult eller importera i Fortnox eller Visma.</p>
+      <form method="get" action="{{ url_for('finance_export') }}" class="fields">
+        <div><label>Från</label><input type="date" name="fran" value="{{ start.replace(month=1, day=1) }}"></div>
+        <div><label>Till</label><input type="date" name="till" value="{{ today }}"></div>
+        <div><label>Innehåll</label><select name="typ"><option value="fakturor">Fakturor och kvitton (CSV)</option><option value="utgifter">Utgifter (CSV)</option></select></div>
+        <div><label>&nbsp;</label><button class="ghost">Ladda ner CSV</button></div>
+      </form>
+      <form method="get" action="{{ url_for('finance_attachments_zip') }}" class="row mt">
+        <input type="hidden" name="fran" value="{{ start.replace(month=1, day=1) }}"><input type="hidden" name="till" value="{{ today }}">
+        <button class="ghost small">Ladda ner alla bilagor (zip)</button>
+      </form>
+      <p class="help">Fakturor, kvitton och bilagor ska sparas i 7 år. De ligger i /data och följer med i Unraids appdata-backup.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

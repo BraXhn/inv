@@ -1,0 +1,24 @@
+{% extends "admin/_shell.html" %}
+{% block title %}Utgifter{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Utgifter</h1><div class="sub">Leverantörsfakturor och kvitton. Fotografera kvittot med mobilen när du registrerar det.</div></div>
+  <div class="actions"><a class="btn" href="{{ url_for('expense_form') }}">{{ icon('plus') }} Ny utgift</a><a class="btn ghost" href="{{ url_for('finance_overview') }}">Ekonomiöversikt</a></div>
+</div>
+<form class="card row" method="get">
+  <input type="month" name="m" value="{{ month }}" class="dt-input" aria-label="Månad">
+  <select name="status" data-autosubmit><option value="">Alla</option><option value="obetald" {{ 'selected' if st == 'obetald' }}>Obetalda</option></select>
+  <button>Visa</button>
+</form>
+<div class="card flush table-wrap"><table>
+  <thead><tr><th>Datum</th><th>Leverantör</th><th>Kategori</th><th class="right">Belopp</th><th>Status</th><th></th></tr></thead>
+  {% for e in rows %}
+  {% set late = e.status == 'obetald' and e.due_date and e.due_date < today %}
+  <tr><td class="nowrap">{{ e.date }}</td>
+    <td><a href="{{ url_for('expense_form', eid=e.id) }}"><b>{{ e.supplier }}</b></a><div class="xs muted">{{ 'Leverantörsfaktura' if e.kind == 'faktura' else 'Kvitto' }}{% if e.ref %} {{ e.ref }}{% endif %}{% if e.wo_number %}, {{ e.wo_number }}{% endif %}</div></td>
+    <td>{{ e.category or '' }}</td><td class="right nowrap">{{ e.total|money }}</td>
+    <td><span class="pill {{ 'skickat' if e.status == 'betald' else ('fel' if late else 'ny') }}">{% if e.status == 'betald' %}Betald{% elif late %}Förfallen {{ e.due_date }}{% else %}Obetald{% if e.due_date %}, {{ e.due_date }}{% endif %}{% endif %}</span></td>
+    <td class="right">{% if e.attachment %}<a class="small" href="{{ url_for('expense_attachment', eid=e.id) }}" target="_blank">Bilaga</a>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">Inga utgifter registrerade.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

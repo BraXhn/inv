@@ -1,0 +1,38 @@
+{% extends "admin/_shell.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}{{ KIND_LABEL[inv.kind] }} {{ inv.number }}{% endblock %}
+{% block content %}
+<div class="page-head no-print">
+  <div>
+    <div class="row"><span class="pill {{ 'skickat' if inv.status == 'betald' else ('fel' if overdue else ('avbruten' if inv.status == 'krediterad' else 'ny')) }}">{{ 'Förfallen' if overdue else inv.status|capitalize }}</span>{% if inv.work_order_id %}<a class="small" href="{{ url_for('wo_detail', wid=inv.work_order_id) }}">Till ärendet</a>{% endif %}</div>
+    <h1>{{ KIND_LABEL[inv.kind] }} {{ inv.number }}</h1>
+    <div class="sub">{{ inv.cust_name }}, {{ inv.total|money }}{% if original %}, krediterar <a href="{{ url_for('invoice_admin', iid=original.id) }}">nr {{ original.number }}</a>{% endif %}{% for c in credits %}, krediterad av <a href="{{ url_for('invoice_admin', iid=c.id) }}">nr {{ c.number }}</a>{% endfor %}</div>
+  </div>
+  <div class="actions">
+    <button class="ghost" data-print>Skriv ut</button>
+    {% if inv.cust_email %}<form method="post" action="{{ url_for('invoice_send', iid=inv.id) }}">{{ csrf() }}<button class="ghost" {{ 'disabled' if not mail }}>Mejla till kunden</button></form>{% endif %}
+    <button class="ghost" type="button" data-copy="{{ public_url }}">Kopiera kundlänk</button>
+  </div>
+</div>
+
+{% if inv.status == 'obetald' %}
+<form method="post" action="{{ url_for('invoice_paid', iid=inv.id) }}" class="actionbar no-print">
+  {{ csrf() }}
+  <b>Registrera betalning</b>
+  <input type="date" name="paid_date" class="dt-input" aria-label="Betaldatum" title="Tomt = idag">
+  <select name="payment_method" class="dt-input" aria-label="Betalsätt">{% for k, l in PAYMENT_METHODS %}<option value="{{ k }}" {{ 'selected' if k == 'bankgiro' }}>{{ l }}</option>{% endfor %}</select>
+  <button>Markera som betald</button>
+</form>
+{% endif %}
+
+<div class="sheet invoice-sheet">{% include "shared/_invoice_doc.html" %}</div>
+
+{% if inv.kind != 'kredit' and inv.status != 'krediterad' %}
+<form method="post" action="{{ url_for('invoice_credit', iid=inv.id) }}" class="card row no-print mt">
+  {{ csrf() }}
+  <input type="text" name="reason" maxlength="300" placeholder="Anledning (visas på kreditfakturan)">
+  <button class="danger" data-confirm="Skapa en kreditfaktura som tar bort nr {{ inv.number }}?">Kreditera</button>
+  <span class="help">Ett utfärdat dokument ändras aldrig. Kreditera och skapa ett nytt om något är fel.</span>
+</form>
+{% endif %}
+{% endblock %}

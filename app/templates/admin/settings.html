@@ -9,6 +9,7 @@
   <a class="kpi" href="{{ url_for('wo_list', status='alla') }}"><span class="klabel">{{ icon('list') }} Alla ärenden</span></a>
   <a class="kpi" href="{{ url_for('locations_list') }}"><span class="klabel">{{ icon('pin') }} Platser & taggar</span></a>
   <a class="kpi" href="{{ url_for('services_admin') }}"><span class="klabel">{{ icon('tag') }} Tjänster & priser</span></a>
+  <a class="kpi" href="{{ url_for('finance_overview') }}"><span class="klabel">{{ icon('list') }} Ekonomi</span></a>
   <a class="kpi" href="{{ url_for('mail_log_page') }}"><span class="klabel">{{ icon('mail') }} E-postlogg</span></a>
 </div>
 
@@ -99,6 +100,30 @@
     <button type="button" class="ghost small" data-copy="{{ S.api_key }}">Kopiera nyckel</button>
     <label>Tillåt webbläsaranrop från (CORS)</label><input type="text" name="api_cors_origin" value="{{ S.api_cors_origin }}" placeholder="http://192.168.1.50:8000">
     <label class="check mt"><input type="checkbox" name="new_api_key" value="1"> <span>Skapa ny nyckel (den gamla slutar fungera)</span></label>
+    <p class="mt mb0"><button class="small">Spara</button></p>
+  </form>
+
+  <form method="post" class="card" id="foretag">
+    {{ csrf() }}<input type="hidden" name="section" value="foretag">
+    <h2>Företag och fakturor</h2>
+    <p class="help">Uppgifterna skrivs på fakturor och kvitton. Ett utfärdat dokument behåller uppgifterna det skapades med.</p>
+    <div class="fields">
+      <div><label>Företagsnamn (juridiskt)</label><input type="text" name="company_name" value="{{ S.company_name }}" placeholder="{{ S.business_name }}"></div>
+      <div><label>Org.nr eller personnummer</label><input type="text" name="org_number" value="{{ S.org_number }}"></div>
+      <div><label>Bankgiro</label><input type="text" name="bankgiro" value="{{ S.bankgiro }}"></div>
+      <div><label>Plusgiro</label><input type="text" name="plusgiro" value="{{ S.plusgiro }}"></div>
+      <div><label>Swish</label><input type="text" name="swish_number" value="{{ S.swish_number }}"></div>
+      <div><label>Betalningsvillkor (dagar)</label><input type="number" name="payment_terms_days" value="{{ S.payment_terms_days }}" min="0" max="90"></div>
+      <div><label>Första nummer</label><input type="number" name="invoice_start" value="{{ S.invoice_start }}" min="1"></div>
+    </div>
+    <label class="check mt"><input type="checkbox" name="f_skatt" value="1" {{ 'checked' if S.f_skatt == '1' }}> <span>Godkänd för F-skatt</span></label>
+    <label class="check"><input type="checkbox" name="vat_registered" value="1" {{ 'checked' if S.vat_registered == '1' }}> <span><b>Momsregistrerad</b> – moms visas och räknas på fakturor och kvitton</span></label>
+    <div class="fields">
+      <div><label>Momsregistreringsnummer</label><input type="text" name="vat_number" value="{{ S.vat_number }}" placeholder="SE5566778899 01"></div>
+      <div><label>Momssats (%)</label><input type="number" name="vat_rate" value="{{ S.vat_rate }}" min="0" max="25" step="1"></div>
+    </div>
+    <label class="check"><input type="checkbox" name="prices_include_vat" value="1" {{ 'checked' if S.prices_include_vat == '1' }}> <span>Priserna i systemet är inklusive moms (rekommenderas för privatkunder)</span></label>
+    <label>Text längst ner på fakturor</label><input type="text" name="invoice_note" value="{{ S.invoice_note }}" maxlength="300">
     <p class="mt mb0"><button class="small">Spara</button></p>
   </form>
 

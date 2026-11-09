@@ -10,6 +10,7 @@ import os
 import secrets
 import smtplib
 import sqlite3
+import sys
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -28,7 +29,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -113,6 +114,19 @@ DEFAULT_SETTINGS = {
     "label_on_intake": "1",
     "label_customer_on_intake": "0",
     "intake_terms": "Objektet förvaras på kundens risk utöver normal aktsamhet. Vi kontaktar dig med offert innan arbete utöver avtalat uppdrag utförs. Ej hämtade objekt förvaras i 3 månader efter att de meddelats klara.",
+    "company_name": "",
+    "org_number": "",
+    "vat_registered": "0",
+    "vat_number": "",
+    "vat_rate": "25",
+    "prices_include_vat": "1",
+    "f_skatt": "0",
+    "bankgiro": "",
+    "plusgiro": "",
+    "swish_number": "",
+    "payment_terms_days": "30",
+    "invoice_start": "1001",
+    "invoice_note": "Vid betalning efter förfallodagen debiteras dröjsmålsränta enligt räntelagen.",
     "capacity_hours_week": "10",
     "default_est_minutes": "60",
     "express_fee_per_day": "150",
@@ -232,7 +246,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
-    MAX_CONTENT_LENGTH=1024 * 1024,
+    MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # bilagor (kvitton/fakturor) – publika formulär är små ändå
 )
 app.session_interface = DynamicSecureSession()
 if os.environ.get("TRUST_PROXY", "1") == "1":
@@ -299,6 +313,8 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("bookings", "standard_ready", "TEXT"),
     ("bookings", "express_fee", "REAL"),
     ("bookings", "est_minutes", "INTEGER"),
+    ("customers", "address", "TEXT"),
+    ("customers", "org_number", "TEXT"),
 ]
 
 
@@ -1628,7 +1644,8 @@ def wo_new():
 
 
 def _load_wo(wid):
-    return q("SELECT w.*, c.name customer_name, c.email customer_email, c.phone customer_phone, l.name loc "
+    return q("SELECT w.*, c.name customer_name, c.email customer_email, c.phone customer_phone, l.name loc, "
+             "c.address customer_address, c.org_number customer_org "
              "FROM work_orders w LEFT JOIN customers c ON c.id=w.customer_id "
              "LEFT JOIN locations l ON l.id=w.location_id WHERE w.id=?", (wid,), one=True) or abort(404)
 
@@ -1665,6 +1682,7 @@ def wo_detail(wid):
                            totals=wo_totals(wo, lines), locations=q("SELECT * FROM locations ORDER BY name"),
                            categories=categories(), checklist=INTAKE_CHECKLISTS.get(wo["category"], []),
                            checked=checked, mail=mail_enabled(), next_steps=WO_NEXT.get(wo["status"], []),
+                           invoices=q("SELECT * FROM invoices WHERE work_order_id=? ORDER BY id", (wid,)),
                            services=q("SELECT * FROM services WHERE active=1 AND category=? ORDER BY sort, name",
                                       (wo["category"],)),
                            status_url=f"{base_url()}{url_for('status', token=wo['token'])}")
@@ -2027,9 +2045,10 @@ def customer_detail(cid):
         if not name:
             flash("Namn krävs.", "error")
         else:
-            x("UPDATE customers SET name=?, email=?, phone=?, notes=? WHERE id=?",
+            x("UPDATE customers SET name=?, email=?, phone=?, notes=?, address=?, org_number=? WHERE id=?",
               (name, clean(request.form.get("email"), 200).lower(), clean(request.form.get("phone"), 40),
-               clean(request.form.get("notes"), 3000), cid))
+               clean(request.form.get("notes"), 3000), clean(request.form.get("address"), 300),
+               clean(request.form.get("org_number"), 30), cid))
             flash("Kunden är uppdaterad.")
         return redirect(url_for("customer_detail", cid=cid))
     wos = q("SELECT * FROM work_orders WHERE customer_id=? ORDER BY id DESC", (cid,))
@@ -2051,12 +2070,17 @@ def customer_export(cid):
         d["handelser"] = [dict(e) for e in q("SELECT created_at, text FROM wo_events WHERE work_order_id=? AND public=1",
                                              (w["id"],))]
         data["arbetsordrar"].append(d)
+    data["fakturor_och_kvitton"] = [dict(r) for r in q(
+        "SELECT number, kind, issue_date, due_date, total, status, paid_at FROM invoices WHERE customer_id=?", (cid,))]
     return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype="application/json",
                     headers={"Content-Disposition": f"attachment; filename=kund-{cid}.json"})
 
 
 def anonymize_customer(db, cid):
-    db.execute("UPDATE customers SET name='Anonymiserad kund', email=NULL, phone=NULL, notes=NULL, anonymized=1 "
+    # Fakturor/kvitton (tabellen invoices) har en låst kopia av kunduppgifterna och sparas i 7 år
+    # enligt bokföringslagen – de rörs inte här (rättslig förpliktelse går före radering).
+    db.execute("UPDATE customers SET name='Anonymiserad kund', email=NULL, phone=NULL, notes=NULL, address=NULL, "
+               "org_number=NULL, anonymized=1 "
                "WHERE id=?", (cid,))
     db.execute("UPDATE bookings SET description='(raderad)' WHERE customer_id=?", (cid,))
     db.execute("UPDATE work_orders SET serial=NULL WHERE customer_id=?", (cid,))
@@ -2344,10 +2368,13 @@ SETTINGS_SECTIONS = {
                 "min_notice_hours", "blocked_dates"],
     "epost": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "notify_email"],
     "api": ["api_cors_origin"],
+    "foretag": ["company_name", "org_number", "vat_registered", "vat_number", "vat_rate", "prices_include_vat",
+                "f_skatt", "bankgiro", "plusgiro", "swish_number", "payment_terms_days", "invoice_start",
+                "invoice_note"],
     "etikett": ["label_printer_url", "label_printer_token", "label_size", "label_on_intake", "label_customer_on_intake"],
 }
 CHECKBOX_SETTINGS = {"booking_enabled", "auto_confirm", "reminder_enabled", "print_on_intake", "label_on_intake",
-                     "allow_by_agreement",
+                     "allow_by_agreement", "vat_registered", "prices_include_vat", "f_skatt",
                      "label_customer_on_intake"}
 
 
@@ -2582,6 +2609,9 @@ if os.environ.get("BACKUP_ENABLED", "1") == "1" and not app.config.get("TESTING"
     threading.Thread(target=_backup_loop, daemon=True).start()
 if os.environ.get("BACKGROUND_JOBS", "1") == "1":
     threading.Thread(target=_reminder_loop, daemon=True).start()
+
+sys.modules.setdefault("app", sys.modules[__name__])  # så att finance hittar samma modul även vid python app.py
+import finance  # noqa: E402,F401 – fakturor, kvitton och utgifter (registrerar sina routes)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)

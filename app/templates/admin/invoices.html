@@ -1,0 +1,28 @@
+{% extends "admin/_shell.html" %}
+{% block title %}Fakturor och kvitton{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Fakturor och kvitton</h1><div class="sub">Skapas från ett ärende. Ett utfärdat dokument ändras aldrig, det krediteras.</div></div>
+  <a class="btn ghost" href="{{ url_for('finance_overview') }}">Ekonomiöversikt</a>
+</div>
+<form class="card row" method="get">
+  <input type="search" name="q" value="{{ term }}" placeholder="Sök kund eller nummer">
+  <select name="status" data-autosubmit>
+    <option value="">Alla</option>
+    <option value="obetald" {{ 'selected' if st == 'obetald' }}>Obetalda</option>
+    <option value="forfallen" {{ 'selected' if st == 'forfallen' }}>Förfallna</option>
+    <option value="betald" {{ 'selected' if st == 'betald' }}>Betalda</option>
+    <option value="krediterad" {{ 'selected' if st == 'krediterad' }}>Krediterade</option>
+  </select>
+  <button>Visa</button>
+</form>
+<div class="card flush table-wrap"><table>
+  <thead><tr><th>Nr</th><th>Typ</th><th>Kund</th><th>Datum</th><th>Förfaller</th><th class="right">Belopp</th><th>Status</th></tr></thead>
+  {% for i in rows %}
+  {% set late = i.status == 'obetald' and i.due_date and i.due_date < today %}
+  <tr><td><a href="{{ url_for('invoice_admin', iid=i.id) }}"><b>{{ i.number }}</b></a></td><td>{{ KIND_LABEL[i.kind] }}</td><td>{{ i.cust_name }}</td>
+    <td class="nowrap">{{ i.issue_date }}</td><td class="nowrap">{{ i.due_date or '' }}</td><td class="right nowrap">{{ i.total|money }}</td>
+    <td><span class="pill {{ 'skickat' if i.status == 'betald' else ('fel' if late else ('avbruten' if i.status == 'krediterad' else 'ny')) }}">{{ 'Förfallen' if late else i.status|capitalize }}</span></td></tr>
+  {% else %}<tr><td colspan="7" class="empty">Inga dokument. Skapa en faktura eller ett kvitto från ett ärende.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

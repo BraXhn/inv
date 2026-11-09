@@ -21,6 +21,8 @@
       <label>Namn</label><input type="text" name="name" value="{{ c.name }}" maxlength="120" required>
       <label>E-post</label><input type="email" name="email" value="{{ c.email or '' }}" maxlength="200">
       <label>Telefon</label><input type="tel" name="phone" value="{{ c.phone or '' }}" maxlength="40">
+      <label>Adress <span class="muted">(för fakturor)</span></label><textarea name="address" rows="2" maxlength="300">{{ c.address or '' }}</textarea>
+      <label>Org.nr <span class="muted">(företag)</span></label><input type="text" name="org_number" value="{{ c.org_number or '' }}" maxlength="30">
       <label>Anteckningar</label><textarea name="notes" maxlength="3000">{{ c.notes or '' }}</textarea>
       <p><button>Spara</button></p>
     </form>

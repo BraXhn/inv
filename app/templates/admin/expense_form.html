@@ -1,0 +1,59 @@
+{% extends "admin/_shell.html" %}
+{% from "admin/_macros.html" import csrf %}
+{% block title %}{{ 'Utgift' if e else 'Ny utgift' }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ e.supplier if e else 'Ny utgift' }}</h1>{% if e %}<div class="sub">{{ 'Leverantörsfaktura' if e.kind == 'faktura' else 'Kvitto' }}, {{ e.total|money }}, {{ 'betald' if e.status == 'betald' else 'obetald' }}</div>{% endif %}</div></div>
+<div class="grid-2">
+<form method="post" enctype="multipart/form-data" class="card">
+  {{ csrf() }}
+  <div class="tiles">
+    <div class="tile"><input type="radio" name="kind" id="k-kvitto" value="kvitto" {{ 'checked' if not e or e.kind == 'kvitto' }}><label for="k-kvitto"><span class="txt">Kvitto<span class="desc">Redan betalt</span></span></label></div>
+    <div class="tile"><input type="radio" name="kind" id="k-faktura" value="faktura" {{ 'checked' if e and e.kind == 'faktura' }}><label for="k-faktura"><span class="txt">Leverantörsfaktura<span class="desc">Ska betalas</span></span></label></div>
+  </div>
+  <label>Foto eller PDF av kvittot</label>
+  <input type="file" name="attachment" accept="image/*,application/pdf" class="file-big">
+  {% if e and e.attachment %}<p class="help">Nuvarande: <a href="{{ url_for('expense_attachment', eid=e.id) }}" target="_blank">{{ e.attachment_name or 'bilaga' }}</a>. Välj en ny fil för att ersätta den.</p>{% endif %}
+  <div class="fields">
+    <div><label>Leverantör</label><input type="text" name="supplier" value="{{ e.supplier if e else '' }}" maxlength="120" required list="suppliers"></div>
+    <div><label>Fakturanr / kvittonr</label><input type="text" name="ref" value="{{ (e.ref or '') if e else '' }}" maxlength="60"></div>
+    <div><label>Datum</label><input type="date" name="date" value="{{ e.date if e else today }}"></div>
+    <div><label>Förfallodag <span class="muted">(faktura)</span></label><input type="date" name="due_date" value="{{ (e.due_date or '') if e else '' }}"></div>
+    <div><label>Belopp inkl. moms</label><input type="number" name="total" step="0.01" min="0" value="{{ '%g'|format(e.total) if e else '' }}" required></div>
+    <div><label>Varav moms</label><input type="number" name="vat" step="0.01" min="0" value="{{ '%g'|format(e.vat) if e else '' }}" placeholder="0"></div>
+    <div><label>Kategori</label><select name="category">{% for c in categories %}<option {{ 'selected' if e and e.category == c }}>{{ c }}</option>{% endfor %}</select></div>
+    <div><label>Kopplad till ärende</label><select name="work_order_id"><option value="">–</option>{% for w in wos %}<option value="{{ w.id }}" {{ 'selected' if e and e.work_order_id == w.id }}>{{ w.number }} {{ w.item }}</option>{% endfor %}</select></div>
+  </div>
+  <datalist id="suppliers">{% for sp in suppliers %}<option value="{{ sp }}">{% endfor %}</datalist>
+  <label>Anteckning</label><textarea name="note" maxlength="1000">{{ (e.note or '') if e else '' }}</textarea>
+  {% if not e %}
+  <details class="newpart"><summary>Köpta delar? Lägg in dem i lagret</summary>
+    <div class="fields">
+      <div><label>Del</label><select name="part_id"><option value="">–</option>{% for p in parts %}<option value="{{ p.id }}">{{ p.name }}{% if p.sku %} [{{ p.sku }}]{% endif %} ({{ p.qty|qty }} {{ p.unit }})</option>{% endfor %}</select></div>
+      <div><label>Antal</label><input type="number" name="part_qty" step="any" min="0"></div>
+    </div>
+    <label class="check"><input type="checkbox" name="update_cost" value="1"> <span>Uppdatera inköpspriset (belopp ÷ antal)</span></label>
+  </details>
+  <label class="check"><input type="checkbox" name="paid" value="1"> <span>Fakturan är redan betald</span></label>
+  {% endif %}
+  <div class="actions mt"><button>Spara</button>{% if not e %}<button class="ghost" name="next" value="1">Spara och registrera nästa</button>{% endif %}</div>
+</form>
+<div>
+  {% if e %}
+    {% if e.status == 'obetald' %}
+    <form method="post" class="card">{{ csrf() }}<input type="hidden" name="action" value="betald">
+      <h2>Betala</h2>
+      <select name="payment_method">{% for k, l in PAYMENT_METHODS %}<option value="{{ k }}" {{ 'selected' if k == 'bankgiro' }}>{{ l }}</option>{% endfor %}</select>
+      <p class="mt mb0"><button class="block">Markera som betald</button></p>
+    </form>
+    {% endif %}
+    {% if e.attachment and e.attachment_mime and e.attachment_mime.startswith('image/') and e.attachment_mime != 'image/heic' %}
+    <div class="card"><img class="attach-preview" src="{{ url_for('expense_attachment', eid=e.id) }}" alt="Bilaga"></div>
+    {% endif %}
+    <form method="post" class="card">{{ csrf() }}<input type="hidden" name="action" value="radera">
+      <button class="danger small" data-confirm="Ta bort utgiften och bilagan? Bokföringsunderlag ska normalt sparas i 7 år.">Ta bort</button></form>
+  {% else %}
+    <div class="card"><h2>Tips</h2><p class="help mb0">Ta en bild på kvittot direkt i mobilen. Momsen står på kvittot. Lämna 0 om säljaren inte tog ut moms.</p></div>
+  {% endif %}
+</div>
+</div>
+{% endblock %}

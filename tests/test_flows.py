@@ -537,9 +537,138 @@ def test_orders():
     print("BESTÄLLNINGS-TESTER OK")
 
 
+def test_finance():
+    """Kvitton, fakturor, moms, kreditering, utgifter med bilaga, export och GDPR."""
+    import io as _io, zipfile as _zip
+    verkstad._rl_hits.clear()
+    import finance
+    sent = []
+    verkstad._deliver = lambda cfg, msg: sent.append(msg)
+    adm = login(A.test_client())
+    pub = A.test_client()
+    tok = csrf(adm, "/admin/installningar")
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "foretag", "company_name": "BraXhn Verkstad",
+                                           "org_number": "800101-1234", "bankgiro": "123-4567", "swish_number": "1231234567",
+                                           "payment_terms_days": "30", "invoice_start": "1001", "prices_include_vat": "1",
+                                           "vat_rate": "25", "invoice_note": "Dröjsmålsränta enligt räntelagen."})
+    # Ett ärende med en rad (500 kr) och 1 h arbete à 400 kr = 900 kr
+    tok = csrf(adm, "/admin/ao/ny")
+    r = adm.post("/admin/ao/ny", data={"_csrf": tok, "new_name": "Gustav Grön", "new_email": "gustav@test.se",
+                                       "category": "Cykel", "item": "Kronan", "problem": "Bromsar"})
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    adm.post(f"/admin/ao/{wid}/rad", data={"_csrf": tok, "description": "Bromsvajer", "qty": "2", "unit_price": "250"})
+    adm.post(f"/admin/ao/{wid}", data={"_csrf": tok, "category": "Cykel", "item": "Kronan", "labor_minutes": "60",
+                                       "labor_rate": "400"})
+    page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert "Skapa kvitto" in page and "900 kr" in page
+    # Kvitto utan moms (ej momsregistrerad)
+    r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "kvitto", "payment_method": "swish", "send": "1"})
+    iid = int(r.headers["Location"].rsplit("/", 1)[1])
+    inv = verkstad.connect().execute("SELECT * FROM invoices WHERE id=?", (iid,)).fetchone()
+    assert inv["number"] == 1001 and inv["kind"] == "kvitto" and inv["status"] == "betald" and inv["total"] == 900
+    assert inv["vat_total"] == 0 and inv["vat_registered"] == 0 and inv["cust_name"] == "Gustav Grön"
+    doc = adm.get(f"/admin/faktura/{iid}").get_data(as_text=True)
+    assert "Kvitto" in doc and "inte registrerad för mervärdesskatt" in doc and "Swish" in doc and "800101-1234" in doc
+    import time as _t; _t.sleep(0.3)
+    assert any("Kvitto 1001" in m["Subject"] for m in sent)
+    # Dubblett nekas
+    r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "kvitto", "payment_method": "kort"}, follow_redirects=True)
+    assert "har redan nr 1001" in r.get_data(as_text=True)
+    # Kreditera -> negativ kreditfaktura, original krediterad
+    r = adm.post(f"/admin/faktura/{iid}/kreditera", data={"_csrf": tok, "reason": "Fel betalsätt"})
+    cid_ = int(r.headers["Location"].rsplit("/", 1)[1])
+    cr = verkstad.connect().execute("SELECT * FROM invoices WHERE id=?", (cid_,)).fetchone()
+    assert cr["kind"] == "kredit" and cr["total"] == -900 and cr["number"] == 1002 and cr["credit_of"] == iid
+    assert verkstad.connect().execute("SELECT status FROM invoices WHERE id=?", (iid,)).fetchone()[0] == "krediterad"
+
+    # Momsregistrerad: faktura med 25 % moms inräknad i priserna
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "foretag", "vat_registered": "1",
+                                           "vat_number": "SE800101123401", "vat_rate": "25", "prices_include_vat": "1",
+                                           "payment_terms_days": "30", "invoice_start": "1001"})
+    r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "faktura"}, follow_redirects=True)
+    assert "behöver kundens adress" in r.get_data(as_text=True)
+    r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "faktura", "address": "Storgatan 1\n123 45 Täby"})
+    fid = int(r.headers["Location"].rsplit("/", 1)[1])
+    f = verkstad.connect().execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    assert f["number"] == 1003 and f["total"] == 900 and f["vat_total"] == 180 and f["net_total"] == 720
+    assert f["due_date"] == (verkstad.now().date() + verkstad.timedelta(days=30)).isoformat() and f["status"] == "obetald"
+    assert verkstad.connect().execute("SELECT address FROM customers WHERE name='Gustav Grön'").fetchone()[0].startswith("Storgatan")
+    pubdoc = pub.get(f"/f/{f['token']}").get_data(as_text=True)
+    assert "Faktura" in pubdoc and "Momsreg.nr SE800101123401" in pubdoc and "Moms 25 %" in pubdoc and "123-4567" in pubdoc
+    assert "Att betala" in pubdoc and "Storgatan 1" in pubdoc
+    assert pub.get("/f/fel-token").status_code == 404
+    # Moms exklusive: 100 kr netto -> 125 kr
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "foretag", "vat_registered": "1", "vat_rate": "25"})
+    assert finance.line_amounts(1, 100, 0.25, False) == (100.0, 25.0, 125.0)
+    assert finance.line_amounts(1, 125, 0.25, True) == (100.0, 25.0, 125.0)
+    assert finance.line_amounts(3, 10, 0.0, True) == (30.0, 0.0, 30.0)
+    # Betald
+    adm.post(f"/admin/faktura/{fid}/betald", data={"_csrf": tok, "payment_method": "bankgiro", "paid_date": ""})
+    assert verkstad.connect().execute("SELECT status FROM invoices WHERE id=?", (fid,)).fetchone()[0] == "betald"
+    assert "Betald" in pub.get(f"/f/{f['token']}").get_data(as_text=True)
+
+    # Utgift med bilaga (PNG) och inleverans till lagret
+    from PIL import Image
+    buf = _io.BytesIO(); Image.new("RGB", (40, 40), "white").save(buf, "PNG"); png = buf.getvalue()
+    pid = verkstad.connect().execute("SELECT id, qty FROM parts ORDER BY id LIMIT 1").fetchone()
+    before = pid["qty"]
+    tok = csrf(adm, "/admin/utgifter/ny")
+    r = adm.post("/admin/utgifter/ny", data={"_csrf": tok, "kind": "faktura", "supplier": "Bike Parts AB", "ref": "F-77",
+                                             "date": verkstad.now().date().isoformat(), "due_date": "2026-12-31",
+                                             "total": "625", "vat": "125", "category": "Reservdelar",
+                                             "part_id": str(pid["id"]), "part_qty": "5", "update_cost": "1",
+                                             "attachment": (_io.BytesIO(png), "kvitto.png")},
+                 content_type="multipart/form-data")
+    assert r.status_code == 302
+    e = verkstad.connect().execute("SELECT * FROM expenses WHERE supplier='Bike Parts AB'").fetchone()
+    assert e["status"] == "obetald" and e["attachment"].endswith(".png") and e["attachment_mime"] == "image/png"
+    p2 = verkstad.connect().execute("SELECT qty, unit_cost FROM parts WHERE id=?", (pid["id"],)).fetchone()
+    assert p2["qty"] == before + 5 and p2["unit_cost"] == 125
+    att = adm.get(f"/admin/utgifter/{e['id']}/bilaga")
+    assert att.status_code == 200 and att.data[:4] == b"\x89PNG"
+    assert pub.get(f"/admin/utgifter/{e['id']}/bilaga").status_code == 302  # kräver inloggning
+    # Fel filtyp nekas
+    tok = csrf(adm, "/admin/utgifter/ny")
+    r = adm.post("/admin/utgifter/ny", data={"_csrf": tok, "kind": "kvitto", "supplier": "X", "total": "10",
+                                             "attachment": (_io.BytesIO(b"<script>alert(1)</script>"), "x.html")},
+                 content_type="multipart/form-data", follow_redirects=True)
+    assert "Bara PDF eller bild" in r.get_data(as_text=True)
+    assert verkstad.connect().execute("SELECT COUNT(*) FROM expenses WHERE supplier='X'").fetchone()[0] == 0
+    # Kvitto (utgift) = betald direkt; betala fakturan
+    tok = csrf(adm, "/admin/utgifter/ny")
+    adm.post("/admin/utgifter/ny", data={"_csrf": tok, "kind": "kvitto", "supplier": "Biltema", "total": "199",
+                                         "vat": "39.80", "category": "Förbrukningsmaterial", "payment_method": "kort"},
+             content_type="multipart/form-data")
+    assert verkstad.connect().execute("SELECT status FROM expenses WHERE supplier='Biltema'").fetchone()[0] == "betald"
+    adm.post(f"/admin/utgifter/{e['id']}", data={"_csrf": tok, "action": "betald", "payment_method": "bankgiro"})
+    assert verkstad.connect().execute("SELECT status FROM expenses WHERE id=?", (e["id"],)).fetchone()[0] == "betald"
+
+    # Översikt och export
+    ov = adm.get("/admin/ekonomi").get_data(as_text=True)
+    assert "Ekonomi" in ov and "Reservdelar" in ov
+    for path in ["/admin/fakturor", "/admin/fakturor?status=obetald", "/admin/utgifter", "/admin/utgifter/ny",
+                 f"/admin/utgifter/{e['id']}"]:
+        assert adm.get(path).status_code == 200, path
+    csv_inv = adm.get("/admin/ekonomi/export.csv?typ=fakturor").get_data(as_text=True)
+    assert "1001;Kvitto" in csv_inv and "1002;Kreditfaktura" in csv_inv and "-900,00" in csv_inv and "1003;Faktura" in csv_inv
+    csv_exp = adm.get("/admin/ekonomi/export.csv?typ=utgifter").get_data(as_text=True)
+    assert "Bike Parts AB" in csv_exp and "625,00" in csv_exp
+    z = _zip.ZipFile(_io.BytesIO(adm.get("/admin/ekonomi/bilagor.zip").data))
+    assert any("Bike Parts AB" in n for n in z.namelist())
+
+    # GDPR: anonymisering rör inte fakturans låsta kopia
+    cust = verkstad.connect().execute("SELECT id FROM customers WHERE name='Gustav Grön'").fetchone()[0]
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "utlamnad"})
+    adm.post(f"/admin/kunder/{cust}/anonymisera", data={"_csrf": tok})
+    assert verkstad.connect().execute("SELECT cust_name FROM invoices WHERE id=?", (fid,)).fetchone()[0] == "Gustav Grön"
+    assert verkstad.connect().execute("SELECT name FROM customers WHERE id=?", (cust,)).fetchone()[0] == "Anonymiserad kund"
+    print("EKONOMI-TESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
     test_labels()
     test_orders()
+    test_finance()
     print("ALLA TESTER OK")

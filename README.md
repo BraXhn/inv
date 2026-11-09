@@ -2,6 +2,18 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.2: kvitton, fakturor och utgifter
+- **Kvitto vid utlämning:** välj betalsätt (Swish, kort, kontant …) på ärendet så skapas ett numrerat kvitto. Kunden kan få det som mejl.
+- **Faktura:** kräver kundens adress. Fakturan får förfallodag enligt dina betalningsvillkor och betalningsuppgifter (bankgiro, plusgiro, Swish) med fakturanumret som referens. Kunden får en länk där fakturan kan skrivas ut eller sparas som PDF.
+- **Dokumenten låses och numreras i en följd** (start under Inställningar). Ett utfärdat dokument ändras aldrig. Fel rättas med en **kreditfaktura** som tar bort originalet.
+- **Moms:** under Inställningar → Företag och fakturor. Som momsregistrerad visas moms per sats och ditt momsregistreringsnummer. Annars står det "Säljaren är inte registrerad för mervärdesskatt".
+- **Utgifter:** leverantörsfakturor och kvitton med foto eller PDF som bilaga, kategori, moms, förfallodag och betald/obetald. Utgiften kan kopplas till ett ärende, och köpta delar kan läggas in i lagret direkt.
+- **Ekonomiöversikt** per månad med fakturerat, inbetalt, utgifter, ett ungefärligt resultat, obetalda kundfakturor och leverantörsfakturor att betala.
+- **Export till redovisningen:** CSV för fakturor och för utgifter, och zip med alla bilagor för en period.
+- **Lagring:** fakturor, kvitton och bilagor ska sparas i 7 år (bokföringslagen). Kunduppgifterna på dem är en låst kopia som inte påverkas när en kund anonymiseras. Bilagorna ligger i `/data/bilagor`.
+
+> Det här är fakturering och underlag, inte bokföring. Bokföring och momsdeklaration sköts i ditt bokföringsprogram eller av din redovisningskonsult med hjälp av exporten.
+
 ## Nytt i 3.1: beställning istället för tidsbokning
 - **Kunden beställer en service eller reparation**, inte en tid. Inlämningen sker på en vald tid eller **enligt överenskommelse**. I det senare fallet bestämmer du tiden under Beställningar, och kunden får en bekräftelse med kalenderfil.
 - **Klardatumet räknas ut från kön:** öppna ärenden och beställningar, med varje tjänsts uppskattade arbetstid, mot dina arbetstimmar per vecka fördelade på öppna dagar.

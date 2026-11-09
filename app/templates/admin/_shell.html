@@ -14,6 +14,7 @@
       {{ navlink('wo_list', 'Arbetsordrar', 'list', ep.startswith('wo_')) }}
       {{ navlink('bookings_list', 'Beställningar', 'calendar', ep.startswith('booking'), nav_new_bookings) }}
       {{ navlink('customers_list', 'Kunder', 'users', ep.startswith('customer')) }}
+      {{ navlink('finance_overview', 'Ekonomi', 'list', ep in ('finance_overview', 'invoices_list', 'invoice_admin', 'expenses_list', 'expense_form')) }}
       <div class="nav-sep"></div>
       {{ navlink('parts_list', 'Lager', 'box', ep.startswith('part') or ep == 'shopping_list') }}
       {{ navlink('locations_list', 'Platser och taggar', 'pin', ep.startswith('location') or ep == 'labels') }}
