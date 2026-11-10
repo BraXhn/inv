@@ -21,7 +21,8 @@ from urllib.parse import quote
 from flask import Response, abort, flash, redirect, render_template, request, send_file, url_for
 
 from app import (DATA_DIR, app, base_url, clean, connect, fmt_dt, fmt_money, get_db, log, login_required,
-                 mail_customer, mail_enabled, now, now_s, q, settings, setting_int, to_float, to_int, wo_totals, x)
+                 mail_customer, mail_enabled, now, now_s, q, settings, setting_int, to_float, to_int, wo_totals, x,
+                 apply_status)
 
 ATTACH_DIR = os.path.join(DATA_DIR, "bilagor")
 PAYMENT_METHODS = [("swish", "Swish"), ("kort", "Kort"), ("kontant", "Kontant"), ("bankgiro", "Bankgiro"),
@@ -119,12 +120,8 @@ def next_number(db):
 
 
 def wo_invoice_lines(wo):
-    lines = [(l["description"], l["qty"], l["unit_price"]) for l in
-             q("SELECT * FROM wo_lines WHERE work_order_id=? ORDER BY id", (wo["id"],))]
-    hours = (wo["labor_minutes"] or 0) / 60
-    if hours > 0 and (wo["labor_rate"] or 0) > 0:
-        lines.append(("Arbete, timmar", round(hours, 2), wo["labor_rate"]))
-    return lines
+    """Samma rader som kunden ser: offertpris + tillkommande, eller löpande rader + arbetstid (se wo_totals)."""
+    return wo_totals(wo, q("SELECT * FROM wo_lines WHERE work_order_id=? ORDER BY id", (wo["id"],)))["bill"]
 
 
 def create_invoice(kind, lines, customer, work_order_id=None, payment_method=None, note="", credit_of=None,
@@ -236,7 +233,7 @@ def wo_create_invoice(wid):
     if not lines:
         flash("Ärendet har inga rader eller arbetstid att fakturera.", "error")
         return redirect(url_for("wo_detail", wid=wid) + "#ekonomi")
-    method = request.form.get("payment_method") or None
+    method = request.form.get("payment_method_other") or request.form.get("payment_method") or None
     if kind == "kvitto" and method not in PAYMENT_LABEL:
         flash("Välj hur kunden betalade.", "error")
         return redirect(url_for("wo_detail", wid=wid) + "#ekonomi")
@@ -255,6 +252,10 @@ def wo_create_invoice(wid):
     if request.form.get("send") and wo["customer_email"]:
         send_invoice_mail(row)
     flash(f"{KIND_LABEL[kind]} nr {row['number']} är skapad" + (" och skickad." if request.form.get("send") and wo["customer_email"] and mail_enabled() else "."))
+    if request.form.get("handover") and wo["status"] == "klar" and wo["return_method"] != "post":
+        # Ta betalt och lämna ut i samma klick
+        flash(apply_status(wo, "utlamnad"))
+        return redirect(url_for("wo_detail", wid=wid))
     return redirect(url_for("invoice_admin", iid=iid))
 
 

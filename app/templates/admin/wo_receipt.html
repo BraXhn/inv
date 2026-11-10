@@ -24,8 +24,7 @@
   <h3>Kostnader</h3>
   <table>
     <tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th><th class="right">Summa</th></tr>
-    {% for l in lines %}<tr><td>{{ l.description }}</td><td class="right">{{ l.qty|qty }}</td><td class="right">{{ l.unit_price|money }}</td><td class="right">{{ (l.qty*l.unit_price)|money }}</td></tr>{% endfor %}
-    {% if totals.labor %}<tr><td>Arbete</td><td class="right">{{ '%.2f'|format(totals.hours)|replace('.', ',') }} h</td><td class="right">{{ wo.labor_rate|money }}</td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
+    {% for desc, qty, price in totals.bill %}<tr><td>{{ desc }}</td><td class="right">{{ qty|qty }}</td><td class="right">{{ price|money }}</td><td class="right">{{ (qty*price)|money }}</td></tr>{% endfor %}
     <tr class="sum"><th colspan="3">Att betala</th><th class="right">{{ totals.total|money }}</th></tr>
   </table>
   {% else %}

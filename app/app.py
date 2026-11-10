@@ -29,7 +29,7 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "3.4.0"
+VERSION = "3.5.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -337,6 +337,8 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("bookings", "early_start_at", "TEXT"),
     ("work_orders", "ready_at", "TEXT"),
     ("work_orders", "pickup_reminders", "INTEGER NOT NULL DEFAULT 0"),
+    ("work_orders", "quote_sent_at", "TEXT"),
+    ("wo_lines", "extra", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -360,6 +362,14 @@ def init_db():
         # Ny visuell identitet: byt bara den gamla standardfärgen, inte en färg användaren valt själv
         conn.execute("UPDATE settings SET value='#f5c400' WHERE key='accent_color' AND lower(value)='#1f6f5c'")
         conn.execute("INSERT INTO settings(key, value) VALUES ('design_v3', '1')")
+    if not conn.execute("SELECT value FROM settings WHERE key='quote_billing_v1'").fetchone():
+        # 3.5: offertpris styr debiteringen. Avgifter som läggs på automatiskt tillkommer alltid utöver offerten,
+        # och offerter som redan skickats räknas som skickade.
+        conn.execute("UPDATE wo_lines SET extra=1 WHERE description='Returfrakt' OR description LIKE 'Expresstillägg%'")
+        conn.execute("UPDATE work_orders SET quote_sent_at=COALESCE(quote_approved_at, updated_at) "
+                     "WHERE price_quote IS NOT NULL AND quote_sent_at IS NULL AND (quote_approved_at IS NOT NULL "
+                     "OR status='offert' OR id IN (SELECT work_order_id FROM wo_events WHERE text LIKE '%Offert:%'))")
+        conn.execute("INSERT INTO settings(key, value) VALUES ('quote_billing_v1', '1')")
     if not conn.execute("SELECT value FROM settings WHERE key='services_seeded'").fetchone():
         if not conn.execute("SELECT COUNT(*) FROM services").fetchone()[0]:
             conn.executemany("INSERT INTO services(category, name, description, sort) VALUES (?,?,?,?)",
@@ -1594,6 +1604,14 @@ def dashboard():
             reminded = {0: "", 1: " (påminnelse skickad)"}.get(w["pickup_reminders"], " (två påminnelser skickade)")
             attention.append((w, f"Klar men inte {what} på {age_text(since)}{reminded}"))
             seen.add(w["id"])
+    # Utlämnat utan kvitto eller faktura – det som annars glöms
+    for w in q(base + "WHERE w.status='utlamnad' AND w.closed_at >= ? AND NOT EXISTS (SELECT 1 FROM invoices i "
+               "WHERE i.work_order_id=w.id AND i.kind IN ('faktura','kvitto') AND i.status<>'krediterad') "
+               "ORDER BY w.closed_at DESC", ((now() - timedelta(days=60)).isoformat(sep=" "),)):
+        due = wo_totals(w, q("SELECT * FROM wo_lines WHERE work_order_id=?", (w["id"],)))["total"]
+        if due > 0 and w["id"] not in seen:
+            attention.append((w, f"Utlämnad men inte betald – {fmt_money(due)}"))
+            seen.add(w["id"])
     for w in q(base + "WHERE w.status='offert' AND w.updated_at < ?", ((now() - timedelta(days=3)).isoformat(sep=" "),)):
         if w["id"] not in seen:
             attention.append((w, f"Offert obesvarad i {age_text(w['updated_at'])} – ring kunden"))
@@ -1793,8 +1811,8 @@ def booking_to_wo(bid):
     with db:
         db.execute("UPDATE work_orders SET est_minutes=? WHERE id=?", (b["est_minutes"] or service_estimate(svc), wid))
         if b["express_fee"]:
-            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                       "VALUES (?,?,?,?,?,?)", (wid, None, f"Expresstillägg, klart senast {fmt_dt(date.fromisoformat(b['desired_ready']))}",
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                       "VALUES (?,?,?,?,?,?,1)", (wid, None, f"Expresstillägg, klart senast {fmt_dt(date.fromisoformat(b['desired_ready']))}",
                                                 1, b["express_fee"], now_s()))
         db.execute("UPDATE work_orders SET return_method=?, return_address=?, inbound_tracking=?, warranty_of=? "
                    "WHERE id=?", (b["return_method"] or "hamtas", b["return_address"], b["ship_tracking"],
@@ -1805,8 +1823,8 @@ def booking_to_wo(bid):
         if b["return_method"] == "post" and not b["warranty_of"]:
             fee = to_float(settings().get("return_shipping_fee"), 0)
             if fee:
-                db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                           "VALUES (?,?,?,?,?,?)", (wid, None, "Returfrakt", 1, fee, now_s()))
+                db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                           "VALUES (?,?,?,?,?,?,1)", (wid, None, "Returfrakt", 1, fee, now_s()))
         db.execute("UPDATE bookings SET status='konverterad', work_order_id=? WHERE id=?", (wid, bid))
     return after_intake(wid)
 
@@ -1841,11 +1859,37 @@ def create_work_order(customer_id, category, item, problem, booking_id=None, ser
     raise RuntimeError("Kunde inte skapa arbetsordernummer")
 
 
+def quote_applies(wo):
+    """En skickad offert är ett fast pris: den styr vad kunden betalar (konsumenttjänstlagen 36 §)."""
+    return wo["price_quote"] is not None and bool(wo["quote_sent_at"])
+
+
 def wo_totals(wo, lines):
+    """Vad kunden ska betala, och vad jobbet faktiskt kostat.
+
+    Med skickad offert: offertpriset plus rader märkta "tillkommer" (returfrakt, expresstillägg och tillägg kunden
+    godkänt). Utan offert: löpande räkning, alltså alla rader plus arbetstid. `bill` blir kvittots och fakturans rader
+    och `total` är alltid summan av dem, så skärm, kvitto och faktura visar samma belopp."""
     rate = to_float(wo["labor_rate"])
-    labor = round((wo["labor_minutes"] or 0) / 60 * rate, 2)
+    hours = (wo["labor_minutes"] or 0) / 60
+    labor_items = [("Arbete, timmar", round(hours, 2), rate)] if hours > 0 and rate > 0 else []
+    labor = round(sum(qty * price for _, qty, price in labor_items), 2)
     parts = round(sum(to_float(l["qty"]) * to_float(l["unit_price"]) for l in lines), 2)
-    return {"labor": labor, "parts": parts, "total": round(labor + parts, 2), "hours": (wo["labor_minutes"] or 0) / 60}
+    extra_lines = [l for l in lines if l["extra"]]
+    extras = round(sum(to_float(l["qty"]) * to_float(l["unit_price"]) for l in extra_lines), 2)
+    if quote_applies(wo):
+        quote = round(to_float(wo["price_quote"]), 2)
+        items = [(f"{wo['item']}: reparation enligt offert", 1, quote)]
+        items += [(l["description"], to_float(l["qty"]), to_float(l["unit_price"])) for l in extra_lines]
+        mode = "offert"
+    else:
+        quote = None
+        items = [(l["description"], to_float(l["qty"]), to_float(l["unit_price"])) for l in lines] + labor_items
+        mode = "lopande"
+    total = round(sum(qty * price for _, qty, price in items), 2)
+    return {"labor": labor, "parts": parts, "hours": hours, "cost": round(labor + parts, 2), "total": total,
+            "inside": round(labor + parts - extras, 2),  # det offerten ska täcka, för att se om den håller
+            "mode": mode, "quote": quote, "extras": extras, "bill": items}
 
 
 @app.route("/admin/ao")
@@ -1929,8 +1973,12 @@ def wo_detail(wid):
            clean(f.get("accessories"), 500), clean(f.get("problem"), 5000), clean(f.get("diagnosis"), 5000),
            clean(f.get("internal_notes"), 5000), max(0, to_int(f.get("labor_minutes"))),
            to_float(f.get("labor_rate"), to_float(settings()["labor_rate"])),
-           to_float(f.get("price_quote")) if clean(f.get("price_quote")) else None,
+           (to_float(f.get("price_quote")) if clean(f.get("price_quote")) else None) if "price_quote" in f
+           else wo["price_quote"],
            clean(f.get("due_date"), 10) or None, to_int(f.get("location_id")) or None, checklist, now_s(), wid))
+        if "price_quote" in f and wo["quote_sent_at"] and _load_wo(wid)["price_quote"] != wo["price_quote"]:
+            x("UPDATE work_orders SET quote_sent_at=NULL, quote_approved_at=NULL WHERE id=?", (wid,))
+            flash("Offertbeloppet ändrades. Skicka offerten igen så att kunden kan godkänna det nya priset.", "error")
         flash("Sparat.")
         return redirect(url_for("wo_detail", wid=wid))
     lines = q("SELECT wl.*, p.sku, p.unit FROM wo_lines wl LEFT JOIN parts p ON p.id=wl.part_id "
@@ -1948,6 +1996,8 @@ def wo_detail(wid):
                            categories=categories(), checklist=INTAKE_CHECKLISTS.get(wo["category"], []),
                            checked=checked, mail=mail_enabled(), next_steps=WO_NEXT.get(wo["status"], []),
                            invoices=q("SELECT * FROM invoices WHERE work_order_id=? ORDER BY id", (wid,)),
+                           active_invoice=q("SELECT * FROM invoices WHERE work_order_id=? AND kind IN ('faktura','kvitto') "
+                                            "AND status<>'krediterad' ORDER BY id DESC", (wid,), one=True),
                            services=q("SELECT * FROM services WHERE active=1 AND category=? ORDER BY sort, name",
                                       (wo["category"],)),
                            status_url=f"{base_url()}{url_for('status', token=wo['token'])}",
@@ -2087,9 +2137,15 @@ def wo_set_status(wid):
     if new not in WO_STATUS_LABEL:
         abort(400)
     if new == "offert" and wo["price_quote"] is None:
-        flash("Ange offertbelopp och spara – sedan skickar du offerten härifrån.", "error")
-        return redirect(url_for("wo_detail", wid=wid) + "#pris")
-    msg = clean(request.form.get("message"), 2000)
+        flash("Skriv pris och vad du ska göra i rutan Offert, och skicka den därifrån.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#offert")
+    flash(apply_status(wo, new, clean(request.form.get("message"), 2000), bool(request.form.get("notify"))))
+    return redirect(_back_url(wid))
+
+
+def apply_status(wo, new, msg="", notify=False):
+    """Byter status, loggar, startar garanti/hämtpåminnelse och mejlar kunden. Returnerar text för flash."""
+    wid = wo["id"]
     db = get_db()
     with db:
         if new in ("klar", "utlamnad", "avbruten", "vantar_delar") and wo["timer_started_at"]:
@@ -2102,18 +2158,27 @@ def wo_set_status(wid):
             db.execute("UPDATE work_orders SET ready_at=?, pickup_reminders=0 WHERE id=?", (now_s(), wid))
         text = f"Status: {WO_STATUS_LABEL[new]}." + (f" {msg}" if msg else "")
         if new == "offert":
+            db.execute("UPDATE work_orders SET quote_sent_at=?, quote_approved_at=NULL WHERE id=?", (now_s(), wid))
             text += f" Offert: {fmt_money(wo['price_quote'])}."
+        elif wo["status"] == "offert" and new == "avbruten":
+            # Nej tack: offerten gäller inte längre, så eventuell felsökningsavgift debiteras som vanliga rader
+            db.execute("UPDATE work_orders SET quote_sent_at=NULL WHERE id=?", (wid,))
+            text = "Kunden tackade nej till offerten." + (f" {msg}" if msg else "")
+        elif wo["status"] == "offert" and new in ("pagar", "vantar_delar") and not wo["quote_approved_at"]:
+            db.execute("UPDATE work_orders SET quote_approved_at=? WHERE id=?", (now_s(), wid))
+            text = f"Offerten godkänd ({fmt_money(wo['price_quote'])}). " + text
         db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
                    (wid, now_s(), text))
         touch_customer(db, wo["customer_id"])
-    if request.form.get("notify") and wo["customer_email"] and mail_enabled():
+    if notify and wo["customer_email"] and mail_enabled():
         s = settings()
         link = f"{base_url()}{url_for('status', token=wo['token'])}"
         name = wo["customer_name"]
         if new == "offert":
             heading, paras = "Vi har en offert till dig", [
                 f"Hej {name}! Vi har gått igenom {wo['item']}.",
-                (wo["diagnosis"] or "") + f" Pris: {fmt_money(wo['price_quote'])}.",
+                (wo["diagnosis"] or "") + f" Fast pris: {fmt_money(wo['price_quote'])}.",
+                "Behövs något mer än det som står i offerten frågar vi dig först. "
                 "Godkänn med ett klick så sätter vi igång."]
             button = ("Visa och godkänn offerten", link)
         elif new == "klar" and wo["return_method"] == "post":
@@ -2136,10 +2201,64 @@ def wo_set_status(wid):
             details.append(("Adress", s["address"]))
         mail_customer(wo["customer_email"], f"{wo['number']}: {WO_STATUS_LABEL[new]} – {s['business_name']}",
                       f"status_{new}", heading=heading, paragraphs=paras, details=details, button=button)
-        flash(f"{wo['number']}: {WO_STATUS_SHORT[new]} – kunden har fått e-post.")
-    else:
-        flash(f"{wo['number']}: {WO_STATUS_SHORT[new]}.")
-    return redirect(_back_url(wid))
+        return f"{wo['number']}: {WO_STATUS_SHORT[new]} – kunden har fått e-post."
+    return f"{wo['number']}: {WO_STATUS_SHORT[new]}."
+
+
+@app.route("/admin/ao/<int:wid>/offert", methods=["POST"])
+@login_required
+def wo_quote(wid):
+    """Ett steg: pris + vad som ska göras -> status Offert -> kunden får länk att godkänna."""
+    wo = _load_wo(wid)
+    f = request.form
+    raw = clean(f.get("price_quote"), 20).replace(" ", "").replace(",", ".")
+    price = to_float(raw, -1) if raw else -1
+    diagnosis = clean(f.get("diagnosis"), 5000)
+    if price < 0:
+        flash("Skriv offertpriset i kronor.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#offert")
+    if not diagnosis:
+        flash("Skriv kort vad du ska göra. Kunden ser det tillsammans med priset.", "error")
+        return redirect(url_for("wo_detail", wid=wid) + "#offert")
+    if wo["status"] in ("utlamnad", "avbruten"):
+        flash("Ärendet är avslutat. Öppna det igen först.", "error")
+        return redirect(url_for("wo_detail", wid=wid))
+    x("UPDATE work_orders SET price_quote=?, diagnosis=?, updated_at=? WHERE id=?", (round(price, 2), diagnosis, now_s(), wid))
+    flash(apply_status(_load_wo(wid), "offert", "", bool(f.get("notify"))))
+    return redirect(url_for("wo_detail", wid=wid) + "#offert")
+
+
+@app.route("/admin/ao/<int:wid>/offert/godkand", methods=["POST"])
+@login_required
+def wo_quote_approved(wid):
+    """Kunden godkände muntligt, på plats eller i telefon."""
+    wo = _load_wo(wid)
+    if not quote_applies(wo):
+        abort(400)
+    how = clean(request.form.get("how"), 60) or "muntligt"
+    with get_db() as db:
+        db.execute("UPDATE work_orders SET quote_approved_at=?, updated_at=? WHERE id=?", (now_s(), now_s(), wid))
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+                   (wid, now_s(), f"Offerten godkänd {how} ({fmt_money(wo['price_quote'])})."))
+    if wo["status"] == "offert":
+        x("UPDATE work_orders SET status='pagar' WHERE id=?", (wid,))
+    flash("Offerten är godkänd." + (" Status: Pågår." if wo["status"] == "offert" else ""))
+    return redirect(url_for("wo_detail", wid=wid))
+
+
+@app.route("/admin/ao/<int:wid>/offert/ta-bort", methods=["POST"])
+@login_required
+def wo_quote_remove(wid):
+    """Tillbaka till löpande räkning. Bara om kunden gått med på det – annars gäller offerten."""
+    wo = _load_wo(wid)
+    with get_db() as db:
+        db.execute("UPDATE work_orders SET price_quote=NULL, quote_sent_at=NULL, quote_approved_at=NULL, "
+                   "status=CASE WHEN status='offert' THEN 'felsokning' ELSE status END, updated_at=? WHERE id=?",
+                   (now_s(), wid))
+        db.execute("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,0)",
+                   (wid, now_s(), f"Offerten ({fmt_money(wo['price_quote'])}) togs bort. Debiteras löpande."))
+    flash("Offerten är borttagen. Kunden betalar nu för rader och arbetstid.")
+    return redirect(url_for("wo_detail", wid=wid) + "#offert")
 
 
 @app.route("/admin/ao/<int:wid>/handelse", methods=["POST"])
@@ -2159,6 +2278,7 @@ def wo_add_event(wid):
 def wo_add_line(wid):
     wo = _load_wo(wid)
     f = request.form
+    extra = 1 if f.get("extra") else 0  # tillkommer utöver offerten
     qty = to_float(f.get("qty"), 1)
     if qty <= 0:
         flash("Antal måste vara större än noll.", "error")
@@ -2170,13 +2290,13 @@ def wo_add_line(wid):
         if sid:
             svc = db.execute("SELECT * FROM services WHERE id=?", (sid,)).fetchone() or abort(404)
             price = to_float(f.get("unit_price")) if clean(f.get("unit_price")) else (svc["price_from"] or 0)
-            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                       "VALUES (?,?,?,?,?,?)", (wid, None, svc["name"], qty, price, now_s()))
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                       "VALUES (?,?,?,?,?,?,?)", (wid, None, svc["name"], qty, price, now_s(), extra))
         elif pid:
             p = db.execute("SELECT * FROM parts WHERE id=?", (pid,)).fetchone() or abort(404)
             price = to_float(f.get("unit_price"), p["unit_price"]) if clean(f.get("unit_price")) else p["unit_price"]
-            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                       "VALUES (?,?,?,?,?,?)", (wid, pid, p["name"], qty, price, now_s()))
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                       "VALUES (?,?,?,?,?,?,?)", (wid, pid, p["name"], qty, price, now_s(), extra))
             db.execute("UPDATE parts SET qty = qty - ? WHERE id=?", (qty, pid))
             db.execute("INSERT INTO stock_moves(part_id, delta, reason, work_order_id, created_at) VALUES (?,?,?,?,?)",
                        (pid, -qty, f"Används i {wo['number']}", wid, now_s()))
@@ -2190,10 +2310,20 @@ def wo_add_line(wid):
             if not desc:
                 flash("Välj en del från lagret eller skriv en beskrivning.", "error")
                 return redirect(url_for("wo_detail", wid=wid) + "#rader")
-            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                       "VALUES (?,?,?,?,?,?)", (wid, None, desc, qty, to_float(f.get("unit_price")), now_s()))
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                       "VALUES (?,?,?,?,?,?,?)", (wid, None, desc, qty, to_float(f.get("unit_price")), now_s(), extra))
         db.execute("UPDATE work_orders SET updated_at=? WHERE id=?", (now_s(), wid))
+    if extra:
+        log_extra_line(wid)
     return redirect(url_for("wo_detail", wid=wid) + "#rader")
+
+
+def log_extra_line(wid):
+    """Spår i loggen som kunden ser: tillägg utöver offerten ska vara godkända av kunden."""
+    l = q("SELECT description, qty, unit_price FROM wo_lines WHERE work_order_id=? ORDER BY id DESC LIMIT 1", (wid,), one=True)
+    if l:
+        x("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,1)",
+          (wid, now_s(), f"Tillägg utöver offerten: {l['description']}, {fmt_money(l['qty'] * l['unit_price'])}."))
 
 
 @app.route("/admin/ao/<int:wid>/ny-del", methods=["POST"])
@@ -2202,6 +2332,7 @@ def wo_new_part(wid):
     """Skapar en lagerdel som inte fanns och lägger den direkt på arbetsordern (drar från lagret)."""
     wo = _load_wo(wid)
     f = request.form
+    extra = 1 if f.get("extra") else 0
     name = clean(f.get("name"), 200)
     used = to_float(f.get("qty"), 1)
     stock = to_float(f.get("stock"), used) if clean(f.get("stock")) else used
@@ -2223,13 +2354,15 @@ def wo_new_part(wid):
                        (pid, stock, f"Ny del (skapad från {wo['number']})", now_s()))
             db.execute("INSERT INTO stock_moves(part_id, delta, reason, work_order_id, created_at) VALUES (?,?,?,?,?)",
                        (pid, -used, f"Används i {wo['number']}", wid, now_s()))
-            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at) "
-                       "VALUES (?,?,?,?,?,?)", (wid, pid, name, used, to_float(f.get("unit_price")), now_s()))
+            db.execute("INSERT INTO wo_lines(work_order_id, part_id, description, qty, unit_price, created_at, extra) "
+                       "VALUES (?,?,?,?,?,?,?)", (wid, pid, name, used, to_float(f.get("unit_price")), now_s(), extra))
             db.execute("UPDATE work_orders SET updated_at=? WHERE id=?", (now_s(), wid))
     except sqlite3.IntegrityError:
         flash("Artikelnumret finns redan i lagret. Välj delen i listan istället.", "error")
         return redirect(url_for("wo_detail", wid=wid) + "#rader")
     left = stock - used
+    if extra:
+        log_extra_line(wid)
     flash(f"{name} är tillagd i lagret och på ärendet" + (f" – {fmt_qty(left)} kvar i lager." if left else "."))
     return redirect(url_for("wo_detail", wid=wid) + "#rader")
 

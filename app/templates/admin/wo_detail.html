@@ -17,13 +17,25 @@
   </div>
 </div>
 
+{% set unpaid_due = not active_invoice and totals.total > 0 %}
 <div class="actionbar">
+  {% if wo.status == 'klar' and unpaid_due %}
+  <a class="btn" href="#betalning">{{ icon('check') }} Ta betalt · {{ totals.total|money }}</a>
+  {% endif %}
   {% for st, label, primary in next_steps %}
+  {% if st == 'offert' %}
+  <a class="btn {{ '' if primary else 'ghost' }}" href="#offert">{{ label }}</a>
+  {% else %}
   <form method="post" action="{{ url_for('wo_set_status', wid=wo.id) }}">
     {{ csrf() }}<input type="hidden" name="status" value="{{ st }}">
-    {% if mail and wo.customer_email and st in ('offert', 'klar') %}<input type="hidden" name="notify" value="1">{% endif %}
+    {% if mail and wo.customer_email and st == 'klar' %}<input type="hidden" name="notify" value="1">{% endif %}
+    {% if st == 'utlamnad' and unpaid_due %}
+    <button class="ghost" data-confirm="Inget kvitto eller faktura är gjort ({{ totals.total|money }}). Lämna ut ändå?">Lämna ut utan betalning</button>
+    {% else %}
     <button class="{{ '' if primary else 'ghost' }}">{{ label }}</button>
+    {% endif %}
   </form>
+  {% endif %}
   {% endfor %}
   {% if wo.status not in ('utlamnad', 'avbruten') %}
   <form method="post" action="{{ url_for('wo_timer', wid=wo.id) }}">
@@ -51,8 +63,103 @@
   </details>
 </div>
 
+{% macro quote_form() %}
+  <form method="post" action="{{ url_for('wo_quote', wid=wo.id) }}" class="mt">
+    {{ csrf() }}
+    <label for="q-desc">Vad du ska göra <span class="muted">(kunden ser det)</span></label>
+    <textarea id="q-desc" name="diagnosis" rows="3" maxlength="5000" required placeholder="Byter bromsbelägg fram och bak, luftar bromsarna och justerar.">{{ wo.diagnosis or '' }}</textarea>
+    <div class="fields">
+      <div><label for="q-price">Fast pris inkl. delar (kr)</label><input id="q-price" type="number" name="price_quote" min="0" step="1" required value="{{ '%g'|format(wo.price_quote) if wo.price_quote is not none else ('%g'|format(totals.cost) if totals.cost else '') }}"></div>
+    </div>
+    {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="notify" value="1" checked> <span>Mejla offerten till {{ wo.customer_email }}</span></label>
+    {% elif not wo.customer_email %}<p class="help">Kunden har ingen e-post. Ge priset muntligt eller visa ärendelänken, och tryck "Kunden har godkänt" när hen sagt ja.</p>
+    {% else %}<p class="help">E-post är inte inställd, så inget mejl går ut. Skicka kundens statuslänk själv, eller ge priset muntligt.</p>{% endif %}
+    <button class="mt">Skicka offert</button>
+  </form>
+{% endmacro %}
+{% macro pay_forms(big) %}
+  {% set handover_ok = wo.status == 'klar' and wo.return_method != 'post' %}
+  <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}" class="{{ 'mt' if not big }}">
+    {{ csrf() }}<input type="hidden" name="kind" value="kvitto">
+    <label>Betalt på plats</label>
+    <div class="paymethods">
+      {% for k, l in PAYMENT_METHODS[:3] %}<label class="paymethod"><input type="radio" name="payment_method" value="{{ k }}" {{ 'checked' if loop.first }}><span>{{ l }}</span></label>{% endfor %}
+      <select name="payment_method_other" class="paymethod-more" aria-label="Annat betalsätt"><option value="">Annat…</option>{% for k, l in PAYMENT_METHODS[3:] %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+    </div>
+    {% if handover_ok %}<label class="check"><input type="checkbox" name="handover" value="1" checked> <span>Lämna ut samtidigt</span></label>{% endif %}
+    {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla kvittot</span></label>{% endif %}
+    <button class="{{ 'lg block' if big else 'small' }} mt">Betalt {{ totals.total|money }} – skapa kvitto</button>
+  </form>
+  <details class="mt">
+    <summary class="small">Skicka faktura istället ({{ S.payment_terms_days }} dagar)</summary>
+    <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}">
+      {{ csrf() }}<input type="hidden" name="kind" value="faktura">
+      <label>Kundens adress</label><textarea name="address" rows="3" required placeholder="Gatuadress&#10;Postnummer ort">{{ wo.customer_address or '' }}</textarea>
+      <label>Org.nr <span class="muted">(företag, valfritt)</span></label><input type="text" name="org_number" value="{{ wo.customer_org or '' }}" maxlength="30">
+      {% if handover_ok %}<label class="check"><input type="checkbox" name="handover" value="1" checked> <span>Lämna ut samtidigt</span></label>{% endif %}
+      {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla fakturan</span></label>{% endif %}
+      <p class="mt mb0"><button class="small">Skapa faktura på {{ totals.total|money }}</button></p>
+    </form>
+  </details>
+{% endmacro %}
 <div class="grid-2">
 <div>
+  {% if wo.status in ('klar', 'utlamnad') and unpaid_due %}
+  <div class="card paycard" id="betalning">
+    <div class="spread"><h2 class="mb0">Ta betalt</h2><span class="paycard-sum">{{ totals.total|money }}</span></div>
+    <p class="small muted mb0">{% if totals.mode == 'offert' %}Offertpris {{ totals.quote|money }}{% if totals.extras %} + tillkommer {{ totals.extras|money }}{% endif %}{% else %}Löpande: delar {{ totals.parts|money }} + arbete {{ totals.labor|money }}{% endif %}</p>
+    {% if wo.status == 'utlamnad' %}<p class="bad small mb0">Objektet är redan utlämnat utan betalning.</p>{% endif %}
+    {% set sq = swish_qr_text(S.swish_number, totals.total, wo.number) %}
+    {% if sq %}<details class="mt"><summary class="small">Visa Swish-QR för kunden</summary><div class="inv-swish swish-counter">{{ qr_svg(sq) }}<span>Kunden skannar i Swish-appen. Belopp och {{ wo.number }} är ifyllda.</span></div></details>{% endif %}
+    {{ pay_forms(True) }}
+  </div>
+  {% endif %}
+
+  {% if wo.status not in ('utlamnad', 'avbruten') or wo.price_quote is not none %}
+  <div class="card quotecard {{ 'is-open' if totals.mode == 'offert' }}" id="offert">
+    {% if totals.mode == 'offert' %}
+      <div class="spread"><h2 class="mb0">Offert</h2><span class="paycard-sum">{{ wo.price_quote|money }}</span></div>
+      {% if wo.quote_approved_at %}
+        <p class="mb0"><span class="pill skickat">Godkänd {{ wo.quote_approved_at|dt }}</span></p>
+        <p class="small">Kunden betalar offertpriset{% if totals.extras %} plus tillkommande rader ({{ totals.extras|money }}){% endif %}. Arbetstid och delar som ingår påverkar inte priset.</p>
+      {% else %}
+        <p class="mb0"><span class="pill offert">Skickad {{ wo.quote_sent_at|dt }} · väntar på svar</span></p>
+        <form method="post" action="{{ url_for('wo_quote_approved', wid=wo.id) }}" class="row mt">
+          {{ csrf() }}
+          <select name="how" aria-label="Hur kunden godkände"><option value="i telefon">i telefon</option><option value="på plats">på plats</option><option value="via sms">via sms</option><option value="via e-post">via e-post</option></select>
+          <button class="small">Kunden har godkänt</button>
+        </form>
+      {% endif %}
+      {% if wo.diagnosis %}<p class="small muted">{{ wo.diagnosis }}</p>{% endif %}
+      {% if totals.inside %}<p class="small">Delar och arbetstid hittills: <b>{{ totals.inside|money }}</b>{% if totals.inside > totals.quote %} – <span class="bad">{{ (totals.inside - totals.quote)|money }} över offerten</span>{% endif %}</p>{% endif %}
+      {% if wo.status not in ('utlamnad', 'avbruten') %}
+      <details>
+        <summary class="small">Blir det dyrare? Skicka ny offert</summary>
+        <p class="help">Fast pris får inte höjas utan att kunden godkänner det. Kunden får en ny länk att godkänna.</p>
+        {{ quote_form() }}
+      </details>
+      <details>
+        <summary class="small muted">Ta bort offerten</summary>
+        <form method="post" action="{{ url_for('wo_quote_remove', wid=wo.id) }}">{{ csrf() }}
+          <p class="help">Bara om kunden gått med på löpande räkning istället.</p>
+          <button class="small ghost" data-confirm="Ta bort offerten och debitera löpande?">Debitera löpande istället</button></form>
+      </details>
+      {% endif %}
+    {% else %}
+      <div class="spread"><h2 class="mb0">Offert</h2>{% if totals.cost %}<span class="small muted">Löpande hittills {{ totals.cost|money }}</span>{% endif %}</div>
+      {% if wo.status in ('inlamnad', 'felsokning') %}
+        <p class="small">Ge kunden ett fast pris innan du börjar. Det blir priset kunden betalar, plus det du märker som tillkommande.</p>
+        {{ quote_form() }}
+      {% else %}
+        <details>
+          <summary class="small">Ingen offert – kunden betalar för rader och arbetstid. Skicka offert ändå</summary>
+          {{ quote_form() }}
+        </details>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
   <form method="post" class="card">
     {{ csrf() }}
     <h2>Uppgifter</h2>
@@ -73,29 +180,34 @@
     {% for item in checklist %}<label class="check"><input type="checkbox" name="checklist" value="{{ item }}" {{ 'checked' if item in checked }}> <span>{{ item }}</span></label>{% endfor %}
     {% endif %}
 
-    <h3 id="pris">Arbete och pris</h3>
+    <h3 id="pris">Arbetstid</h3>
     <div class="fields">
       <div><label>Arbetstid (minuter)</label><input type="number" name="labor_minutes" min="0" step="5" value="{{ wo.labor_minutes }}"></div>
       <div><label>Timpris</label><input type="number" name="labor_rate" min="0" step="1" value="{{ '%g'|format(wo.labor_rate or 0) }}"></div>
-      <div><label>Offertbelopp</label><input type="number" name="price_quote" min="0" step="1" value="{{ '%g'|format(wo.price_quote) if wo.price_quote is not none else '' }}"></div>
     </div>
-    {% if wo.quote_approved_at %}<p class="small">Offerten godkändes {{ wo.quote_approved_at|dt }}.</p>{% endif %}
     <p><button>Spara</button></p>
   </form>
 
   <div class="card" id="rader">
     <h2>Delar och material</h2>
+    {% if totals.mode == 'offert' %}<p class="help">Delar och arbetstid ingår i offertpriset. Kryssa i <b>Tillkommer</b> bara för tillägg som kunden har godkänt – annars får de inte debiteras.</p>{% endif %}
     <div class="table-wrap"><table>
       <tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th><th class="right">Summa</th><th></th></tr>
       {% for l in lines %}
       <tr>
-        <td>{% if l.part_id %}<a href="{{ url_for('part_detail', pid=l.part_id) }}">{{ l.description }}</a>{% else %}{{ l.description }}{% endif %}{% if l.sku %} <span class="small muted">{{ l.sku }}</span>{% endif %}</td>
+        <td>{% if l.part_id %}<a href="{{ url_for('part_detail', pid=l.part_id) }}">{{ l.description }}</a>{% else %}{{ l.description }}{% endif %}{% if l.sku %} <span class="small muted">{{ l.sku }}</span>{% endif %}
+          {% if l.extra %}<span class="pill extra">Tillkommer</span>{% elif totals.mode == 'offert' %}<span class="xs muted">ingår i offert</span>{% endif %}</td>
         <td class="right">{{ l.qty|qty }}</td><td class="right nowrap">{{ l.unit_price|money }}</td><td class="right nowrap">{{ (l.qty * l.unit_price)|money }}</td>
         <td class="right"><form method="post" action="{{ url_for('wo_remove_line', wid=wo.id, lid=l.id) }}">{{ csrf() }}<button class="link small" data-confirm="Ta bort raden{{ ' och återföra delen till lagret' if l.part_id }}?">Ta bort</button></form></td>
       </tr>
       {% endfor %}
-      <tr><td colspan="3">Arbete {{ '%.2f'|format(totals.hours)|replace('.', ',') }} h</td><td class="right nowrap">{{ totals.labor|money }}</td><td></td></tr>
-      <tr class="sum"><th colspan="3">Totalt</th><th class="right nowrap">{{ totals.total|money }}</th><th></th></tr>
+      <tr><td colspan="3">Arbete {{ '%.2f'|format(totals.hours)|replace('.', ',') }} h{% if totals.mode == 'offert' %} <span class="xs muted">ingår i offert</span>{% endif %}</td><td class="right nowrap">{{ totals.labor|money }}</td><td></td></tr>
+      {% if totals.mode == 'offert' %}
+      <tr><td colspan="3" class="muted">Delar och arbete inom offerten</td><td class="right nowrap muted">{{ totals.inside|money }}</td><td></td></tr>
+      <tr><td colspan="3">Offertpris</td><td class="right nowrap">{{ totals.quote|money }}</td><td></td></tr>
+      {% if totals.extras %}<tr><td colspan="3">Tillkommer</td><td class="right nowrap">{{ totals.extras|money }}</td><td></td></tr>{% endif %}
+      {% endif %}
+      <tr class="sum"><th colspan="3">Kunden betalar</th><th class="right nowrap">{{ totals.total|money }}</th><th></th></tr>
     </table></div>
 
     {% if services %}
@@ -107,6 +219,7 @@
       <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
       <div><label>Pris (tomt = listpris)</label><input id="sp" type="number" name="unit_price" min="0" step="any"></div>
       <div><label>&nbsp;</label><button class="ghost">Lägg till</button></div>
+      {% if totals.mode == 'offert' %}<div class="extra-box"><label class="check"><input type="checkbox" name="extra" value="1"> <span>Tillkommer utöver offerten</span></label></div>{% endif %}
     </form>
     {% endif %}
     <h3>Lägg till från lager</h3>
@@ -119,6 +232,7 @@
       <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
       <div><label>À-pris (tomt = listpris)</label><input id="lp" type="number" name="unit_price" min="0" step="any"></div>
       <div><label>&nbsp;</label><button>Lägg till och dra från lager</button></div>
+      {% if totals.mode == 'offert' %}<div class="extra-box"><label class="check"><input type="checkbox" name="extra" value="1"> <span>Tillkommer utöver offerten</span></label></div>{% endif %}
     </form>
 
     <details class="newpart" {{ 'open' if not parts }}>
@@ -141,6 +255,7 @@
           <div><label>Pris till kund</label><input type="number" name="unit_price" min="0" step="any" required></div>
           <div><label>Leverantör</label><input type="text" name="supplier" maxlength="120"></div>
         </div>
+        {% if totals.mode == 'offert' %}<div class="extra-box"><label class="check"><input type="checkbox" name="extra" value="1"> <span>Tillkommer utöver offerten</span></label></div>{% endif %}
         <p class="help">Köper du t.ex. 4 par och använder 1 hamnar 3 i lagret och delen får egen NFC/QR-tagg.</p>
         <button>{{ icon('plus') }} Skapa del och lägg på ärendet</button>
       </form>
@@ -153,6 +268,7 @@
       <div><label>Antal</label><input type="number" name="qty" value="1" min="0.01" step="any"></div>
       <div><label>À-pris</label><input type="number" name="unit_price" min="0" step="any" required></div>
       <div><label>&nbsp;</label><button class="ghost">Lägg till</button></div>
+      {% if totals.mode == 'offert' %}<div class="extra-box"><label class="check"><input type="checkbox" name="extra" value="1"> <span>Tillkommer utöver offerten</span></label></div>{% endif %}
     </form>
   </div>
 
@@ -264,27 +380,15 @@
       <p class="spread mb0"><a href="{{ url_for('invoice_admin', iid=i.id) }}">{{ KIND_LABEL[i.kind] }} {{ i.number }}</a>
         <span class="small">{{ i.total|money }} <span class="pill {{ 'skickat' if i.status == 'betald' else ('avbruten' if i.status == 'krediterad' else 'ny') }}">{{ i.status|capitalize }}</span></span></p>
     {% endfor %}
-    {% set has_active = invoices|selectattr('status', 'ne', 'krediterad')|selectattr('kind', 'ne', 'kredit')|list %}
-    {% if not has_active %}
-      {% if invoices %}<hr class="sep">{% endif %}
-      <p class="help">Att betala: <b>{{ totals.total|money }}</b>. Raderna och arbetstiden ovan blir dokumentets rader.</p>
-      <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}" class="mt">
-        {{ csrf() }}<input type="hidden" name="kind" value="kvitto">
-        <label>Betalt på plats</label>
-        <div class="row"><select name="payment_method" class="dt-input" aria-label="Betalsätt">{% for k, l in PAYMENT_METHODS %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
-          <button class="small">Skapa kvitto</button></div>
-        {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla kvittot</span></label>{% endif %}
-      </form>
-      <details class="mt">
-        <summary class="small">Skicka faktura istället</summary>
-        <form method="post" action="{{ url_for('wo_create_invoice', wid=wo.id) }}">
-          {{ csrf() }}<input type="hidden" name="kind" value="faktura">
-          <label>Kundens adress</label><textarea name="address" rows="3" required placeholder="Gatuadress&#10;Postnummer ort">{{ wo.customer_address or '' }}</textarea>
-          <label>Org.nr <span class="muted">(företag, valfritt)</span></label><input type="text" name="org_number" value="{{ wo.customer_org or '' }}" maxlength="30">
-          {% if mail and wo.customer_email %}<label class="check"><input type="checkbox" name="send" value="1" checked> <span>Mejla fakturan</span></label>{% endif %}
-          <p class="mt mb0"><button class="small">Skapa faktura ({{ S.payment_terms_days }} dagar)</button></p>
-        </form>
-      </details>
+    {% if active_invoice %}
+      <p class="small mb0">{% if active_invoice.status == 'betald' %}Betalt.{% else %}Väntar på betalning, förfaller {{ active_invoice.due_date }}.{% endif %}</p>
+    {% elif wo.status in ('klar', 'utlamnad') and unpaid_due %}
+      <p class="small mb0"><a href="#betalning">Ta betalt: {{ totals.total|money }}</a></p>
+    {% elif totals.total > 0 %}
+      <p class="help">Kunden betalar <b>{{ totals.total|money }}</b>{% if totals.mode == 'offert' %} enligt offert{% endif %}. Vill kunden betala i förskott går det här.</p>
+      <details><summary class="small">Ta betalt nu</summary>{{ pay_forms(False) }}</details>
+    {% else %}
+      <p class="help mb0">Inget att ta betalt för ännu.</p>
     {% endif %}
   </div>
   {{ tagbox(wo.tag_code, 'Tagg för objektet') }}

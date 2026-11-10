@@ -2,6 +2,13 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.5: offert styr priset, och betalningen glöms inte
+
+- **Offert = fast pris.** En skickad offert är det kunden betalar. Delar och arbetstid som ingår syns för dig men ändrar inte priset. Rader märkta **Tillkommer** (returfrakt, expresstillägg och tillägg kunden godkänt) läggs på. Kvitto, faktura, kundens sida och översikten visar samma belopp.
+- **Offertrutan** överst på arbetsordern: skriv vad du ska göra och priset, tryck *Skicka offert*. Kunden godkänner via länken, eller så trycker du *Kunden har godkänt* (telefon, på plats). Blir det dyrare skickar du en ny offert som kunden måste godkänna. Du ser om delar och arbetstid går över offerten.
+- **Ta betalt** när ärendet är klart: stor ruta med beloppet, Swish/Kort/Kontant, Swish-QR att visa vid disken, och *Lämna ut samtidigt*. Faktura går också. *Lämna ut* utan betalning kräver en bekräftelse, och utlämnat men obetalt syns på översikten.
+- **Uppgradering:** offerter som redan skickats eller godkänts börjar styra priset. Returfrakt och expresstillägg markeras som tillkommande.
+
 ## Nytt i 3.4: foton, Swish och hämtpåminnelser
 
 - **Foton på arbetsordern:** fota skick vid inlämning, före och efter direkt från mobilen. Bilderna skalas ner och sparas om, så GPS-position och annan EXIF-data försvinner. Välj per bild om kunden ser den på sin ärendesida. Bilderna raderas när kunden anonymiseras. De ligger i `/data/foton` – den inbyggda säkerhetskopian tar bara databasen, så säkerhetskopiera hela appdata-mappen (t.ex. med Appdata Backup i Unraid).

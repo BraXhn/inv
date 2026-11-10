@@ -22,6 +22,7 @@
   <section class="step card accent">
     <h2>Offert: {{ wo.price_quote|money }}</h2>
     {% if wo.diagnosis %}<p>{{ wo.diagnosis }}</p>{% endif %}
+    <p class="small muted">Fast pris inklusive delar och arbete{% if totals.extras %}. Dessutom tillkommer {{ totals.extras|money }} ({% for desc, qty, price in totals.bill[1:] %}{{ desc|lower }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}. Behövs något mer frågar vi dig först.</p>
     <form method="post" action="{{ url_for('approve_quote', token=token) }}">
       <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
       <button class="lg block" data-confirm="Godkänna offerten på {{ wo.price_quote|money }}?">Godkänn och starta reparationen</button>
@@ -43,14 +44,14 @@
   </section>
   {% endif %}
 
-  {% if lines or totals.labor %}
+  {% if totals.bill and wo.status != 'offert' %}
   <section class="step">
     <h2>Kostnad</h2>
     <table>
-      {% for l in lines %}<tr><td>{{ l.description }}{% if l.qty != 1 %} <span class="muted">× {{ l.qty|qty }}</span>{% endif %}</td><td class="right nowrap">{{ (l.qty * l.unit_price)|money }}</td></tr>{% endfor %}
-      {% if totals.labor %}<tr><td>Arbete <span class="muted">{{ '%.1f'|format(totals.hours)|replace('.', ',') }} h</span></td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
-      <tr class="sum"><th>Totalt</th><th class="right">{{ totals.total|money }}</th></tr>
+      {% for desc, qty, price in totals.bill %}<tr><td>{{ desc }}{% if qty != 1 %} <span class="muted">× {{ qty|qty }}</span>{% endif %}</td><td class="right nowrap">{{ (qty * price)|money }}</td></tr>{% endfor %}
+      <tr class="sum"><th>{{ 'Att betala' if wo.status in ('klar', 'utlamnad') else 'Hittills' if totals.mode == 'lopande' else 'Totalt' }}</th><th class="right">{{ totals.total|money }}</th></tr>
     </table>
+    {% if totals.mode == 'offert' %}<p class="help mb0">Fast pris enligt offerten du godkände.{% if totals.extras %} Tillägg utanför offerten står på egna rader.{% endif %}</p>{% endif %}
   </section>
   {% endif %}
 

@@ -141,9 +141,9 @@ def test_everything():
     assert pub.post(f"/s/{wo_token}/godkann", data={"_csrf": ptok}).status_code == 302
     assert verkstad.connect().execute("SELECT status FROM work_orders WHERE id=?", (wid,)).fetchone()[0] == "pagar"
 
-    # Summa: 150 + 89 + 1,5 h * 500 = 989
+    # Godkänd offert är fast pris: 1 100 kr, fast raderna + 1,5 h * 500 hade blivit 989
     page = pub.get(f"/s/{wo_token}").get_data(as_text=True)
-    assert "989 kr" in page, re.findall(r"Totalt.*?kr", page, re.S)[:1]
+    assert "1 100 kr" in page and "989 kr" not in page and "enligt offert" in page
     # Interna anteckningar läcker inte
     adm.post(f"/admin/ao/{wid}/handelse", data={"_csrf": tok, "text": "HEMLIG intern notering"})
     assert "HEMLIG" not in pub.get(f"/s/{wo_token}").get_data(as_text=True)
@@ -171,7 +171,7 @@ def test_everything():
     # Klar + utlämnad → intäkt på översikten
     adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "klar"})
     adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "utlamnad"})
-    assert "989 kr" in adm.get("/admin").get_data(as_text=True)
+    assert "1 100 kr" in adm.get("/admin").get_data(as_text=True)
 
     # Inventering (sätt exakt saldo)
     adm.post(f"/admin/lager/{pid}/justera", data={"_csrf": tok, "mode": "set", "amount": "10"})
@@ -560,7 +560,7 @@ def test_finance():
     adm.post(f"/admin/ao/{wid}", data={"_csrf": tok, "category": "Cykel", "item": "Kronan", "labor_minutes": "60",
                                        "labor_rate": "400"})
     page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
-    assert "Skapa kvitto" in page and "900 kr" in page
+    assert "skapa kvitto" in page and "Kunden betalar <b>900 kr</b>" in page
     # Kvitto utan moms (ej momsregistrerad)
     r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "kvitto", "payment_method": "swish", "send": "1"})
     iid = int(r.headers["Location"].rsplit("/", 1)[1])
@@ -926,6 +926,138 @@ def test_v34():
     print("3.4-TESTER OK")
 
 
+def test_quote_billing():
+    """Skickad offert = fast pris; tillkommande rader läggs på; betalning och utlämning i ett klick."""
+    verkstad._rl_hits.clear()
+    import time as _t
+    sent = []
+    verkstad._deliver = lambda cfg, msg: sent.append(msg)
+    adm = login(A.test_client())
+    pub = A.test_client()
+    tok = csrf(adm, "/admin/ao/ny")
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "epost", "smtp_host": "smtp.test",
+                                           "smtp_port": "587", "smtp_from": "v@test.se"})
+    r = adm.post("/admin/ao/ny", data={"_csrf": tok, "new_name": "Olle Offert", "new_email": "olle@test.se",
+                                       "category": "Cykel", "item": "Kronan", "problem": "Bromsar"})
+    wid = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    db = lambda: verkstad.connect()
+    wo = lambda: db().execute("SELECT * FROM work_orders WHERE id=?", (wid,)).fetchone()
+
+    def total():
+        with A.test_request_context():
+            return verkstad.wo_totals(wo(), db().execute("SELECT * FROM wo_lines WHERE work_order_id=?", (wid,)).fetchall())
+
+    adm.post(f"/admin/ao/{wid}/rad", data={"_csrf": tok, "description": "Bromsvajer", "qty": "1", "unit_price": "300"})
+    adm.post(f"/admin/ao/{wid}", data={"_csrf": tok, "category": "Cykel", "item": "Kronan", "labor_minutes": "60",
+                                       "labor_rate": "400"})
+    assert total()["mode"] == "lopande" and total()["total"] == 700
+    page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert 'id="offert"' in page and "Skicka offert" in page and 'name="price_quote" min="0" step="1" required value="700"' in page
+
+    # Status Offert utan pris leder till offertrutan; offert kräver text och pris
+    r = adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "offert"})
+    assert r.headers["Location"].endswith("#offert") and wo()["status"] == "inlamnad"
+    adm.post(f"/admin/ao/{wid}/offert", data={"_csrf": tok, "price_quote": "1 200", "diagnosis": ""})
+    assert wo()["status"] == "inlamnad"
+    adm.post(f"/admin/ao/{wid}/offert", data={"_csrf": tok, "price_quote": "1 200", "diagnosis": "Nya bromsar runt om",
+                                             "notify": "1"})
+    w = wo()
+    assert w["status"] == "offert" and w["price_quote"] == 1200 and w["quote_sent_at"] and not w["quote_approved_at"]
+    assert total()["mode"] == "offert" and total()["total"] == 1200
+    for _ in range(40):
+        if any(m["To"] == "olle@test.se" for m in sent):
+            break
+        _t.sleep(0.05)
+    offer_mail = [m for m in sent if m["To"] == "olle@test.se"][-1].get_body(("plain",)).get_content()
+    assert "Fast pris: 1 200 kr" in offer_mail and "frågar vi dig först" in offer_mail
+    page = pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    assert "Offert: 1 200 kr" in page and "Fast pris inklusive" in page and "Hittills" not in page
+
+    # Kunden godkänner; delar som ingår ändrar inte priset, tillkommande gör det och loggas för kunden
+    ptok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+    pub.post(f"/s/{w['token']}/godkann", data={"_csrf": ptok})
+    assert wo()["status"] == "pagar" and wo()["quote_approved_at"]
+    adm.post(f"/admin/ao/{wid}/rad", data={"_csrf": tok, "description": "Bromsskivor", "qty": "2", "unit_price": "250"})
+    assert total()["total"] == 1200 and total()["cost"] == 1200 + 0  # 300 + 500 + 400
+    adm.post(f"/admin/ao/{wid}/rad", data={"_csrf": tok, "description": "Ny kedja (godkänd i telefon)", "qty": "1",
+                                          "unit_price": "150", "extra": "1"})
+    t = total()
+    assert t["total"] == 1350 and t["extras"] == 150 and t["cost"] == 1350
+    assert [b[0] for b in t["bill"]] == ["Kronan: reparation enligt offert", "Ny kedja (godkänd i telefon)"]
+    assert "Tillägg utöver offerten: Ny kedja" in pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert "Tillkommer utöver offerten" in page and "ingår i offert" in page and "Kunden betalar" in page
+
+    # Klar och obetald: tydlig knapp, utlämning utan betalning kräver bekräftelse
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "klar"})
+    page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert "Ta betalt · 1 350 kr" in page and 'id="betalning"' in page and "Lämna ut utan betalning" in page
+    assert "Lämna ut samtidigt" in page
+    page = pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    assert "Att betala" in page and "1 350 kr" in page
+
+    # Ta betalt + lämna ut i ett klick; kvittot har offertraden + tillägget
+    r = adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "kvitto", "payment_method": "swish",
+                                                  "payment_method_other": "overforing", "handover": "1"})
+    assert r.headers["Location"].endswith(f"/admin/ao/{wid}")
+    inv = db().execute("SELECT * FROM invoices WHERE work_order_id=?", (wid,)).fetchone()
+    assert inv["total"] == 1350 and inv["payment_method"] == "overforing" and inv["status"] == "betald"
+    rows = [tuple(x) for x in db().execute("SELECT description, unit_price FROM invoice_lines WHERE invoice_id=? "
+                                          "ORDER BY id", (inv["id"],)).fetchall()]
+    assert rows == [("Kronan: reparation enligt offert", 1200.0), ("Ny kedja (godkänd i telefon)", 150.0)]
+    assert wo()["status"] == "utlamnad" and wo()["warranty_until"]
+    page = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert 'id="betalning"' not in page and "Betalt." in page
+
+    # Utlämnat utan betalning syns på översikten
+    tok = csrf(adm, "/admin/ao/ny")
+    r = adm.post("/admin/ao/ny", data={"_csrf": tok, "new_name": "Nils Notpaid", "category": "Cykel",
+                                       "item": "Monark", "problem": "Punktering"})
+    w2 = int(re.search(r"/admin/ao/(\d+)", r.headers["Location"]).group(1))
+    adm.post(f"/admin/ao/{w2}/rad", data={"_csrf": tok, "description": "Slang", "qty": "1", "unit_price": "120"})
+    adm.post(f"/admin/ao/{w2}/status", data={"_csrf": tok, "status": "utlamnad"})
+    assert "Utlämnad men inte betald – 120 kr" in adm.get("/admin").get_data(as_text=True)
+
+    # Muntligt godkännande, nej tack och borttagen offert
+    adm.post(f"/admin/ao/{w2}/status", data={"_csrf": tok, "status": "inlamnad"})
+    adm.post(f"/admin/ao/{w2}/offert", data={"_csrf": tok, "price_quote": "400", "diagnosis": "Ny däck och slang"})
+    adm.post(f"/admin/ao/{w2}/offert/godkand", data={"_csrf": tok, "how": "i telefon"})
+    w = db().execute("SELECT * FROM work_orders WHERE id=?", (w2,)).fetchone()
+    assert w["status"] == "pagar" and w["quote_approved_at"]
+    assert db().execute("SELECT 1 FROM wo_events WHERE work_order_id=? AND text LIKE 'Offerten godkänd i telefon%'",
+                        (w2,)).fetchone()
+    # Ändrat belopp utan ny offert -> gäller inte längre, måste skickas igen
+    adm.post(f"/admin/ao/{w2}", data={"_csrf": tok, "category": "Cykel", "item": "Monark", "price_quote": "450"})
+    w = db().execute("SELECT * FROM work_orders WHERE id=?", (w2,)).fetchone()
+    assert w["price_quote"] == 450 and not w["quote_sent_at"] and not w["quote_approved_at"]
+    # Uppgiftsformuläret utan offertfält rör inte offerten
+    adm.post(f"/admin/ao/{w2}/offert", data={"_csrf": tok, "price_quote": "450", "diagnosis": "Ny däck och slang"})
+    adm.post(f"/admin/ao/{w2}", data={"_csrf": tok, "category": "Cykel", "item": "Monark", "labor_minutes": "30"})
+    assert db().execute("SELECT price_quote FROM work_orders WHERE id=?", (w2,)).fetchone()[0] == 450
+    adm.post(f"/admin/ao/{w2}/status", data={"_csrf": tok, "status": "avbruten"})
+    w = db().execute("SELECT * FROM work_orders WHERE id=?", (w2,)).fetchone()
+    assert not w["quote_sent_at"]
+    assert db().execute("SELECT 1 FROM wo_events WHERE work_order_id=? AND text LIKE 'Kunden tackade nej%'", (w2,)).fetchone()
+    adm.post(f"/admin/ao/{w2}/status", data={"_csrf": tok, "status": "inlamnad"})
+    adm.post(f"/admin/ao/{w2}/offert", data={"_csrf": tok, "price_quote": "450", "diagnosis": "x"})
+    adm.post(f"/admin/ao/{w2}/offert/ta-bort", data={"_csrf": tok})
+    w = db().execute("SELECT * FROM work_orders WHERE id=?", (w2,)).fetchone()
+    assert w["price_quote"] is None and w["status"] == "felsokning"
+
+    # Migrering: gamla avgiftsrader blir tillkommande, skickade offerter räknas som skickade
+    c = db()
+    c.execute("INSERT INTO wo_lines(work_order_id, description, qty, unit_price, created_at, extra) "
+              "VALUES (?, 'Returfrakt', 1, 149, '2026-01-01', 0)", (w2,))
+    c.execute("UPDATE work_orders SET price_quote=500, quote_sent_at=NULL, quote_approved_at='2026-01-01 10:00:00' "
+              "WHERE id=?", (w2,))
+    c.execute("DELETE FROM settings WHERE key='quote_billing_v1'")
+    c.commit()
+    verkstad.init_db()
+    assert db().execute("SELECT extra FROM wo_lines WHERE work_order_id=? AND description='Returfrakt'", (w2,)).fetchone()[0] == 1
+    assert db().execute("SELECT quote_sent_at FROM work_orders WHERE id=?", (w2,)).fetchone()[0] == "2026-01-01 10:00:00"
+    print("OFFERT- OCH BETALTESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
@@ -934,4 +1066,5 @@ if __name__ == "__main__":
     test_finance()
     test_warranty_post()
     test_v34()
+    test_quote_billing()
     print("ALLA TESTER OK")
