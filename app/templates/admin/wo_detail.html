@@ -156,6 +156,41 @@
     </form>
   </div>
 
+  {% set pics = photos_for(wo.id) %}
+  <div class="card" id="foton">
+    <div class="spread"><h2 class="mb0">Foton</h2><span class="muted small">{{ pics|length }} st</span></div>
+    {% if pics %}
+    <div class="photo-grid">
+      {% for p in pics %}
+      <figure class="photo">
+        <a href="{{ url_for('photo_admin', pid=p.id) }}" target="_blank" rel="noopener"><img src="{{ url_for('photo_admin', pid=p.id, liten=1) }}" alt="{{ p.caption or PHOTO_STAGES.get(p.stage, '') }}" loading="lazy" width="180" height="135"></a>
+        <figcaption>
+          <span class="xs">{{ PHOTO_STAGES.get(p.stage, '') }}{% if not p.public %} · <b>dold för kunden</b>{% endif %}</span>
+          {% if p.caption %}<span class="xs muted">{{ p.caption }}</span>{% endif %}
+          <span class="photo-actions">
+            <form method="post" action="{{ url_for('photo_toggle', pid=p.id) }}" class="inline">{{ csrf() }}<button class="link xs">{{ 'Dölj' if p.public else 'Visa för kund' }}</button></form>
+            <form method="post" action="{{ url_for('photo_delete', pid=p.id) }}" class="inline">{{ csrf() }}<button class="link xs bad" data-confirm="Ta bort bilden för gott?">Ta bort</button></form>
+          </span>
+        </figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted small">Fota skick och skador vid inlämning. Det skyddar både dig och kunden om något ifrågasätts senare.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('wo_photo_upload', wid=wo.id) }}" enctype="multipart/form-data" class="mt">
+      {{ csrf() }}
+      <label for="wo-photos">Bilder <span class="muted">(ta med kameran eller välj flera)</span></label>
+      <input id="wo-photos" type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/*" multiple required>
+      <div class="fields">
+        <div><label>Typ</label><select name="stage">{% for k, v in PHOTO_STAGES.items() %}<option value="{{ k }}" {{ 'selected' if (k == 'inlamning' and wo.status == 'inlamnad') or (k == 'efter' and wo.status in ('klar', 'utlamnad')) or (k == 'fore' and wo.status not in ('inlamnad', 'klar', 'utlamnad')) }}>{{ v }}</option>{% endfor %}</select></div>
+        <div><label>Text <span class="muted">(valfri)</span></label><input type="text" name="caption" maxlength="200" placeholder="Repa på vänster sida"></div>
+      </div>
+      <label class="check"><input type="checkbox" name="public" value="1" checked> <span>Visa för kunden på ärendesidan</span></label>
+      <button class="small mt">{{ icon('camera') }} Ladda upp</button>
+    </form>
+  </div>
+
   <div class="card" id="logg">
     <h2>Logg</h2>
     <form method="post" action="{{ url_for('wo_add_event', wid=wo.id) }}">

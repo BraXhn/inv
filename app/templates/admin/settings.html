@@ -42,6 +42,7 @@
     <label class="check"><input type="checkbox" name="booking_enabled" value="1" {{ 'checked' if S.booking_enabled == '1' }}> <span><b>Bokningssidan är öppen</b></span></label>
     <label class="check"><input type="checkbox" name="auto_confirm" value="1" {{ 'checked' if S.auto_confirm == '1' }}> <span><b>Bekräfta automatiskt</b> – kunden får bekräftelse direkt. Avstängt: du bekräftar varje bokning.</span></label>
     <label class="check"><input type="checkbox" name="reminder_enabled" value="1" {{ 'checked' if S.reminder_enabled == '1' }}> <span><b>Påminnelse dagen före</b> via e-post</span></label>
+    <div class="fields"><div><label>Påminn om ej hämtat efter (dagar, 0 = av)</label><input type="number" name="pickup_reminder_days" value="{{ S.pickup_reminder_days }}" min="0" max="60"><p class="help">En andra påminnelse går efter fyra gånger så lång tid. Skickas bara dagtid.</p></div></div>
     <label class="check"><input type="checkbox" name="allow_by_agreement" value="1" {{ 'checked' if S.allow_by_agreement == '1' }}> <span><b>Tillåt inlämning enligt överenskommelse</b> – kunden väljer ingen tid, du bestämmer den sedan</span></label>
     <h3>Kapacitet och klardatum</h3>
     <div class="fields">

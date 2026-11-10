@@ -53,6 +53,8 @@
     <div class="inv-label">Betalning</div>
     <p>Betala senast <b>{{ inv.due_date }}</b> och ange <b>{{ inv.number }}</b> som referens.</p>
     <p>{% if seller.bankgiro %}Bankgiro {{ seller.bankgiro }}{% endif %}{% if seller.bankgiro and (seller.plusgiro or seller.swish_number) %}<br>{% endif %}{% if seller.plusgiro %}Plusgiro {{ seller.plusgiro }}{% endif %}{% if seller.plusgiro and seller.swish_number %}<br>{% endif %}{% if seller.swish_number %}Swish {{ seller.swish_number }}{% endif %}</p>
+    {% set swish = swish_qr_text(seller.swish_number, inv.total, 'Faktura ' ~ inv.number) %}
+    {% if swish %}<div class="inv-swish">{{ qr_svg(swish) }}<span>Skanna i Swish-appen.<br>Belopp och referens är ifyllda.</span></div>{% endif %}
   </section>
   {% elif inv.status == 'betald' %}
   <p class="inv-paid">Betald {{ (inv.paid_at or '')[:10] }}{% if inv.payment_method %} med {{ PAYMENT_LABEL.get(inv.payment_method, '')|lower }}{% endif %}. Tack!</p>

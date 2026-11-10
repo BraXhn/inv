@@ -30,6 +30,26 @@
     if (e.target.matches('[data-autosubmit]')) { e.target.form.submit(); }
   });
 
+  // Dubbelklick skickar inte samma formulär två gånger (två fakturor, två arbetsordrar ...).
+  // Knappen inaktiveras inte, eftersom en inaktiverad knapps namn och värde då inte skickas med.
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (e.defaultPrevented || (f.method || '').toLowerCase() !== 'post' || f.target === '_blank') { return; }
+    if (f.dataset.sending) { e.preventDefault(); return; }
+    f.dataset.sending = '1';
+    var btn = e.submitter;
+    if (btn) { btn.classList.add('is-sending'); btn.setAttribute('aria-busy', 'true'); }
+    setTimeout(function () {
+      delete f.dataset.sending;
+      if (btn) { btn.classList.remove('is-sending'); btn.removeAttribute('aria-busy'); }
+    }, 8000);
+  });
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) { return; }
+    document.querySelectorAll('form[data-sending]').forEach(function (f) { delete f.dataset.sending; });
+    document.querySelectorAll('.is-sending').forEach(function (b) { b.classList.remove('is-sending'); b.removeAttribute('aria-busy'); });
+  });
+
   // Kopiera text. Clipboard-API:t finns bara över https/localhost; på hemmanätet (http://ip:8080)
   // används en dold textruta och execCommand, som fungerar i alla webbläsare.
   function copyText(text) {

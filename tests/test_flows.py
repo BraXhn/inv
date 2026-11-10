@@ -759,6 +759,173 @@ def test_warranty_post():
     print("GARANTI- OCH POST-TESTER OK")
 
 
+def _jpeg_with_gps():
+    """Liten JPEG med EXIF (orientering och GPS) – ska försvinna vid uppladdning."""
+    import io as _io
+    from PIL import Image as _Im
+    img = _Im.new("RGB", (2400, 1200), (200, 30, 30))
+    exif = _Im.Exif()
+    exif[0x0112] = 6  # roterad 90° – ska vridas rätt
+    exif[0x8825] = {1: "N", 2: (58.0, 32.0, 0.0)}  # GPS-position
+    buf = _io.BytesIO()
+    img.save(buf, "JPEG", exif=exif.tobytes())
+    return buf.getvalue()
+
+
+def test_v34():
+    """Foton, Swish-QR, hämtpåminnelser och dubbelskick."""
+    import io as _io
+    from datetime import datetime as _dt, timedelta as _td
+    from PIL import Image as _Im
+    verkstad._rl_hits.clear()
+    import finance, photos
+
+    # Swish enligt specifikationen: C<nr>;<belopp,öre>;<URL-kodat meddelande>;<låsmask>
+    assert finance.swish_qr_text("123 456 78 90", 1250.5, "Faktura 1003") == "C1234567890;1250,50;Faktura%201003;0"
+    assert finance.swish_qr_text("", 100, "x") == "" and finance.swish_qr_text("1234567890", 0, "x") == ""
+    assert finance.swish_qr_text("1234567890", 10, "Ö & <s>;x") == "C1234567890;10,00;%C3%96%20%20sx;0"  # inga ; i meddelandet
+    assert len(finance.swish_qr_text("1234567890", 10, "A" * 80).split(";")[2]) == 50
+
+    # Hämtpåminnelse: efter N dagar, igen efter 4N, sedan aldrig
+    t0 = _dt(2026, 3, 28, 10, 0)
+    due = verkstad.pickup_reminder_due
+    assert not due("2026-03-28 10:00:00", 0, 7, t0 + _td(days=6, hours=23))
+    assert due("2026-03-28 10:00:00", 0, 7, t0 + _td(days=7))  # över sommartidsskiftet 29 mars
+    assert not due("2026-03-28 10:00:00", 1, 7, t0 + _td(days=27))
+    assert due("2026-03-28 10:00:00", 1, 7, t0 + _td(days=28))
+    assert not due("2026-03-28 10:00:00", 2, 7, t0 + _td(days=400))
+    assert not due("2026-03-28 10:00:00", 0, 0, t0 + _td(days=400)) and not due(None, 0, 7, t0)
+
+    adm = login(A.test_client())
+    pub = A.test_client()
+    tok = csrf(adm, "/admin/installningar")
+    cust = verkstad.connect().execute("INSERT INTO customers(name, email, created_at) VALUES ('Ida Foto', "
+                                      "'ida@test.se', '2026-01-01')")
+    cid = cust.lastrowid
+    cust.connection.commit()
+    with A.test_request_context():
+        wid = verkstad.create_work_order(customer_id=cid, category="Cykel", item="Crescent", problem="Knarrar")
+    w = verkstad.connect().execute("SELECT * FROM work_orders WHERE id=?", (wid,)).fetchone()
+
+    # Uppladdning: EXIF bort, rätt vriden, nedskalad, miniatyr
+    r = adm.post(f"/admin/ao/{wid}/foto", data={"_csrf": tok, "stage": "inlamning", "public": "1", "caption": "Repa",
+                                               "photos": [(_io.BytesIO(_jpeg_with_gps()), "IMG_1.jpg"),
+                                                          (_io.BytesIO(b"inte en bild"), "fel.jpg"),
+                                                          (_io.BytesIO(b"\0\0\0\x18ftypheic" + b"0" * 50), "a.heic")]},
+                 content_type="multipart/form-data")
+    assert r.status_code == 302 and r.headers["Location"].endswith("#foton")
+    rows = verkstad.connect().execute("SELECT * FROM wo_photos WHERE work_order_id=?", (wid,)).fetchall()
+    assert len(rows) == 1 and rows[0]["caption"] == "Repa" and rows[0]["stage"] == "inlamning"
+    p = rows[0]
+    big = _Im.open(os.path.join(verkstad.PHOTO_DIR, p["file"]))
+    assert max(big.size) == 1600 and big.size[1] > big.size[0]  # stående efter EXIF-vridning
+    assert not big.getexif(), "EXIF/GPS får inte sparas"
+    assert max(_Im.open(os.path.join(verkstad.PHOTO_DIR, p["thumb"])).size) <= 360
+    flashes = adm.get(f"/admin/ao/{wid}").get_data(as_text=True)
+    assert "HEIC" in flashes and "fel.jpg" in flashes and "Crescent" in flashes and "photo-grid" in flashes
+
+    # Stora mobilbilder: över appens vanliga gräns på 16 MB ska inte ge 413
+    big_junk = _io.BytesIO(os.urandom(17 * 1024 * 1024))
+    r = adm.post(f"/admin/ao/{wid}/foto", data={"_csrf": tok, "photos": [(big_junk, "stor.jpg")]},
+                 content_type="multipart/form-data")
+    assert r.status_code == 302, r.status_code
+    # ... men inte för utloggade, och inte på andra adresser
+    r = pub.post(f"/admin/ao/{wid}/foto", data={"photos": [(_io.BytesIO(os.urandom(17 * 1024 * 1024)), "x.jpg")]},
+                 content_type="multipart/form-data")
+    assert r.status_code in (400, 413)
+
+    # Behörighet: admin ser, kunden bara via sin länk och bara synliga bilder
+    assert adm.get(f"/admin/foto/{p['id']}").headers["Content-Type"] == "image/jpeg"
+    assert pub.get(f"/admin/foto/{p['id']}").status_code == 302
+    assert pub.get(f"/s/{w['token']}/foto/{p['id']}?liten=1").status_code == 200
+    assert pub.get(f"/s/fel-token/foto/{p['id']}").status_code == 404
+    page = pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    assert f"/s/{w['token']}/foto/{p['id']}" in page and "Repa" in page
+    adm.post(f"/admin/foto/{p['id']}/synlig", data={"_csrf": tok})
+    assert pub.get(f"/s/{w['token']}/foto/{p['id']}").status_code == 404
+    assert "/foto/" not in pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    adm.post(f"/admin/foto/{p['id']}/ta-bort", data={"_csrf": tok})
+    assert not os.path.exists(os.path.join(verkstad.PHOTO_DIR, p["file"]))
+    assert not os.path.exists(os.path.join(verkstad.PHOTO_DIR, p["thumb"]))
+
+    # Anonymisering raderar bilderna
+    adm.post(f"/admin/ao/{wid}/foto", data={"_csrf": tok, "photos": [(_io.BytesIO(_jpeg_with_gps()), "b.jpg")]},
+             content_type="multipart/form-data")
+    p2 = verkstad.connect().execute("SELECT * FROM wo_photos WHERE work_order_id=?", (wid,)).fetchone()
+    assert os.path.exists(os.path.join(verkstad.PHOTO_DIR, p2["file"]))
+
+    # Klar -> ready_at, påminnelse efter 7 dagar (dagtid), aldrig för post, högst två
+    sent = []
+    verkstad._deliver = lambda cfg, msg: sent.append(msg)
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "epost", "smtp_host": "smtp.test",
+                                           "smtp_port": "587", "smtp_from": "v@test.se"})
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "klar"})
+    w = verkstad.connect().execute("SELECT * FROM work_orders WHERE id=?", (wid,)).fetchone()
+    assert w["ready_at"] and w["pickup_reminders"] == 0
+    real_now = verkstad.now
+    ready = _dt.fromisoformat(w["ready_at"])
+
+    def run_at(t):
+        """Kör jobbet vid tiden t; returnerar hur många påminnelser just det här ärendet fick."""
+        before = verkstad.connect().execute("SELECT pickup_reminders FROM work_orders WHERE id=?", (wid,)).fetchone()[0]
+        verkstad.now = lambda: t
+        try:
+            with A.test_request_context():
+                verkstad.send_pickup_reminders()
+        finally:
+            verkstad.now = real_now
+        return verkstad.connect().execute("SELECT pickup_reminders FROM work_orders WHERE id=?", (wid,)).fetchone()[0] - before
+    day8 = (ready + _td(days=8)).replace(hour=10)
+    assert run_at(day8.replace(hour=3)) == 0  # inte mitt i natten
+    assert run_at(day8) == 1 and run_at(day8) == 0
+    assert run_at((ready + _td(days=29)).replace(hour=10)) == 1
+    assert run_at((ready + _td(days=200)).replace(hour=10)) == 0
+    import time as _t
+    for _ in range(50):
+        if len(sent) >= 2:
+            break
+        _t.sleep(0.05)
+    for _ in range(50):
+        if len([m for m in sent if m["To"] == "ida@test.se"]) >= 2:
+            break
+        _t.sleep(0.05)
+    mine = [m for m in sent if m["To"] == "ida@test.se" and "väntar på dig" in m["Subject"]]
+    bodies = "".join(m.get_body(("plain",)).get_content() for m in mine)
+    assert len(mine) == 2 and "Crescent" in bodies and "Hämtkod" not in bodies, "hämtkoden får aldrig mejlas"
+    # Tillbaka till pågår och klar igen nollställer
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "pagar"})
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "klar"})
+    assert verkstad.connect().execute("SELECT pickup_reminders FROM work_orders WHERE id=?", (wid,)).fetchone()[0] == 0
+    # Post-retur får aldrig hämtpåminnelse
+    verkstad.connect().execute("UPDATE work_orders SET return_method='post' WHERE id=?", (wid,)).connection.commit()
+    assert run_at((ready + _td(days=60)).replace(hour=10)) == 0
+
+    # Swish på kundens sida och fakturan när det finns en obetald faktura
+    adm.post("/admin/installningar", data={"_csrf": tok, "section": "foretag", "swish_number": "1231234567",
+                                           "company_name": "Testverkstan", "payment_terms_days": "30"})
+    verkstad.connect().execute("UPDATE customers SET address='Gatan 1, 123 45 Ort' WHERE id=?", (cid,)).connection.commit()
+    verkstad.connect().execute("INSERT INTO wo_lines(work_order_id, description, qty, unit_price, created_at) "
+                               "VALUES (?, 'Kedja', 1, 349, '2026-01-01')", (wid,)).connection.commit()
+    adm.post(f"/admin/ao/{wid}/faktura", data={"_csrf": tok, "kind": "faktura"})
+    page = pub.get(f"/s/{w['token']}").get_data(as_text=True)
+    assert "Att betala" in page and "Visa fakturan" in page
+
+    # Utlämnad och anonymiserad: bilder bort från disk, returadress bort
+    adm.post(f"/admin/ao/{wid}/status", data={"_csrf": tok, "status": "utlamnad"})
+    verkstad.connect().execute("UPDATE work_orders SET return_address='Hemligt 1' WHERE id=?", (wid,)).connection.commit()
+    adm.post(f"/admin/kunder/{cid}/anonymisera", data={"_csrf": tok})
+    assert not os.path.exists(os.path.join(verkstad.PHOTO_DIR, p2["file"]))
+    assert not verkstad.connect().execute("SELECT 1 FROM wo_photos WHERE work_order_id=?", (wid,)).fetchone()
+    assert verkstad.connect().execute("SELECT return_address FROM work_orders WHERE id=?", (wid,)).fetchone()[0] is None
+
+    # E-postämnen med radbrytning från kunddata fäller inte utskicket
+    with A.test_request_context():
+        ok, err = verkstad.send_mail("x@test.se", "Rad ett\r\nBcc: ond@test.se", "hej", sync=True)
+    assert ok, err
+    assert sent[-1]["Subject"] == "Rad ett Bcc: ond@test.se" and sent[-1]["Bcc"] is None
+    print("3.4-TESTER OK")
+
+
 if __name__ == "__main__":
     test_everything()
     test_v2()
@@ -766,4 +933,5 @@ if __name__ == "__main__":
     test_orders()
     test_finance()
     test_warranty_post()
+    test_v34()
     print("ALLA TESTER OK")

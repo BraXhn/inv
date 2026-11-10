@@ -2,6 +2,13 @@
 
 Arbetsordrar, bokningar, kunder och lager för en cykel- och elektronikverkstad. Allt körs i en enda container på Unraid, och kunderna når den via Cloudflare Tunnel.
 
+## Nytt i 3.4: foton, Swish och hämtpåminnelser
+
+- **Foton på arbetsordern:** fota skick vid inlämning, före och efter direkt från mobilen. Bilderna skalas ner och sparas om, så GPS-position och annan EXIF-data försvinner. Välj per bild om kunden ser den på sin ärendesida. Bilderna raderas när kunden anonymiseras. De ligger i `/data/foton` – den inbyggda säkerhetskopian tar bara databasen, så säkerhetskopiera hela appdata-mappen (t.ex. med Appdata Backup i Unraid).
+- **Swish-QR** på obetalda fakturor och på kundens ärendesida, med belopp och fakturanummer ifyllt (Swish QR-specifikation 1.7.2). Kräver Swish-nummer under Inställningar → Företag.
+- **Påminnelse om ej hämtat:** e-post när ett klart ärende inte hämtats på 7 dagar och igen efter 28 (ändra under Bokning, 0 = av). Bara dagtid, aldrig för post-retur, och hämtkoden mejlas aldrig. Ärenden som redan var klara före uppgraderingen får ingen påminnelse.
+- **Säkrare:** dubbelklick skickar inte samma formulär två gånger, e-postämnen tål radbrytningar, och anonymisering tar även bort returadress och spårningsnummer.
+
 ## Nytt i 3.3: garantier och insändning med post
 
 - **Garanti** startar när ärendet lämnas ut eller skickas tillbaka (standard 3 månader, Inställningar → Bokning). Datum och text står på kundens sida, kvitto och faktura. Texten säger att garantin inte begränsar konsumenttjänstlagens treåriga reklamationsrätt – låt den stå kvar.

@@ -39,7 +39,7 @@
   <section class="step card accent">
     <div class="success"><div class="ring">{{ icon('check') }}</div><h2>Klart för hämtning!</h2>
     <p class="muted mb0">{{ S.address }}</p>
-    <p class="mt mb0">Ta med mottagningssedeln, eller uppge hämtkoden från mejlet, när du hämtar.</p></div>
+    <p class="mt mb0">Ta med mottagningssedeln när du hämtar. Har du tappat bort den går det bra med legitimation.</p></div>
   </section>
   {% endif %}
 
@@ -51,6 +51,16 @@
       {% if totals.labor %}<tr><td>Arbete <span class="muted">{{ '%.1f'|format(totals.hours)|replace('.', ',') }} h</span></td><td class="right">{{ totals.labor|money }}</td></tr>{% endif %}
       <tr class="sum"><th>Totalt</th><th class="right">{{ totals.total|money }}</th></tr>
     </table>
+  </section>
+  {% endif %}
+
+  {% if unpaid %}
+  <section class="step card pay-card" id="betala">
+    <h2>Att betala: {{ unpaid.total|money }}</h2>
+    <p>Faktura {{ unpaid.number }}, senast {{ unpaid.due_date }}.</p>
+    {% set swish = swish_qr_text(S.swish_number, unpaid.total, 'Faktura ' ~ unpaid.number) %}
+    {% if swish %}<div class="inv-swish">{{ qr_svg(swish) }}<span>Skanna i Swish-appen på en annan skärm, eller swisha till <b>{{ S.swish_number }}</b> och skriv <b>Faktura {{ unpaid.number }}</b> som meddelande.</span></div>{% endif %}
+    <p class="mt mb0"><a class="btn ghost" href="{{ url_for('public_invoice', token=unpaid.token) }}">Visa fakturan</a></p>
   </section>
   {% endif %}
 
@@ -83,6 +93,21 @@
       </form>
     </details>
     {% endif %}
+  </section>
+  {% endif %}
+
+  {% set pics = photos_for(wo.id, public_only=True) %}
+  {% if pics %}
+  <section class="step">
+    <h2>{{ icon('camera') }} Bilder</h2>
+    <div class="photo-grid">
+      {% for p in pics %}
+      <figure class="photo">
+        <a href="{{ url_for('photo_public', token=token, pid=p.id) }}" target="_blank" rel="noopener"><img src="{{ url_for('photo_public', token=token, pid=p.id, liten=1) }}" alt="{{ p.caption or PHOTO_STAGES.get(p.stage, '') }}" loading="lazy" width="180" height="135"></a>
+        <figcaption class="xs muted">{{ PHOTO_STAGES.get(p.stage, '') }}{% if p.caption %} · {{ p.caption }}{% endif %}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
   </section>
   {% endif %}
 

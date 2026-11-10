@@ -11,10 +11,12 @@ import csv
 import io
 import json
 import os
+import re
 import secrets
 import uuid
 import zipfile
 from datetime import date, datetime, timedelta
+from urllib.parse import quote
 
 from flask import Response, abort, flash, redirect, render_template, request, send_file, url_for
 
@@ -97,6 +99,18 @@ def seller_snapshot():
     return {k: s.get(k, "") for k in ("company_name", "business_name", "org_number", "vat_registered", "vat_number",
                                        "f_skatt", "address", "contact_phone", "contact_email", "bankgiro", "plusgiro",
                                        "swish_number", "invoice_note", "warranty_months", "warranty_text")}
+
+
+def swish_qr_text(swish_number, amount, message):
+    """Förifylld Swish-betalning enligt Swish QR code specification 1.7.2, avsnitt 6.1:
+    C<mottagare>;<belopp med två decimaler och decimalkomma>;<URL-kodat meddelande>;<låsmask>.
+    Låsmask 0 = kunden kan inte ändra mottagare, belopp eller meddelande. Tom sträng om något saknas."""
+    payee = re.sub(r"\D", "", swish_number or "")
+    if len(payee) < 8 or not amount or amount <= 0:
+        return ""
+    msg = quote(re.sub(r"[^0-9A-Za-zÅÄÖåäö \-]", "", message or "")[:50], safe="")
+    belopp = f"{amount:.2f}".replace(".", ",")
+    return f"C{payee};{belopp};{msg};0"
 
 
 def next_number(db):
@@ -197,7 +211,8 @@ def save_upload(file_storage):
     return name, clean(os.path.basename(file_storage.filename), 200), mime, None
 
 
-app.jinja_env.globals.update(PAYMENT_METHODS=PAYMENT_METHODS, PAYMENT_LABEL=PAYMENT_LABEL, KIND_LABEL=KIND_LABEL)
+app.jinja_env.globals.update(PAYMENT_METHODS=PAYMENT_METHODS, PAYMENT_LABEL=PAYMENT_LABEL, KIND_LABEL=KIND_LABEL,
+                             swish_qr_text=swish_qr_text)
 
 
 # ---------------------------------------------------------------------------

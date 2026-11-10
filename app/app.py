@@ -29,10 +29,11 @@ try:  # etiketter kräver Pillow (finns i Docker-imagen)
 except ImportError:  # pragma: no cover
     labelkit = None
 
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "verkstad.db")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+PHOTO_DIR = os.path.join(DATA_DIR, "foton")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("verkstad")
@@ -142,6 +143,7 @@ DEFAULT_SETTINGS = {
     "post_instructions": "Packa objektet stötsäkert i en stadig kartong med minst 5 cm stoppning runt om. Ta med laddare eller nyckel om felet kan ha med dem att göra. Lägg följesedeln överst i paketet. Skicka spårbart och spara kvittot – objektet är ditt ansvar tills vi tagit emot det.",
     "auto_confirm": "1",  # bekräfta direkt = minst jobb för dig; stäng av under Inställningar
     "reminder_enabled": "1",
+    "pickup_reminder_days": "7",
     "smtp_host": "",
     "smtp_port": "587",
     "smtp_user": "",
@@ -333,6 +335,8 @@ MIGRATIONS = [  # (tabell, kolumn, definition) – körs idempotent vid start
     ("bookings", "return_method", "TEXT"),
     ("bookings", "return_address", "TEXT"),
     ("bookings", "early_start_at", "TEXT"),
+    ("work_orders", "ready_at", "TEXT"),
+    ("work_orders", "pickup_reminders", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -518,8 +522,13 @@ def csrf_token():
     return session["_csrf"]
 
 
+LARGE_UPLOADS = {"wo_photo_upload"}  # mobilbilder: flera stora filer i samma uppladdning
+
+
 @app.before_request
 def csrf_protect():
+    if request.endpoint in LARGE_UPLOADS and session.get("admin"):
+        request.max_content_length = 100 * 1024 * 1024  # måste sättas innan formuläret läses
     if request.method == "POST":
         expected = session.get("_csrf")
         sent = request.form.get("_csrf", "")
@@ -628,6 +637,7 @@ def _deliver(cfg, msg):
 def send_mail(to, subject, text, html=None, attachments=(), kind="", sync=False):
     """Skickar e-post. Asynkront som standard (får aldrig fälla en request). sync=True returnerar (ok, fel)."""
     cfg = mail_config()
+    subject = " ".join(str(subject).split())  # en rad: radbrytningar från kunddata får aldrig fälla utskicket
     if not cfg["smtp_host"] or not to:
         return (False, "E-post är inte konfigurerad") if sync else False
     try:
@@ -803,6 +813,51 @@ def send_due_reminders():
     return len(rows)
 
 
+def pickup_reminder_due(ready_at, sent, days, at):
+    """Antal dagar sedan klar avgör: första påminnelsen efter `days`, andra efter 4 × `days`, sedan inga fler."""
+    if not ready_at or days <= 0 or sent >= 2:
+        return False
+    age = at - datetime.fromisoformat(ready_at.replace(" ", "T"))
+    return age >= timedelta(days=days * (4 if sent else 1))
+
+
+def send_pickup_reminders():
+    """Påminner kunder som inte hämtat. Bara dagtid, och aldrig för ärenden som skickas tillbaka med post."""
+    days = setting_int("pickup_reminder_days", 7)
+    n = now()
+    if days <= 0 or not mail_enabled() or not 8 <= n.hour < 20:
+        return 0
+    s = settings()
+    rows = q("SELECT w.*, c.name customer_name, c.email customer_email FROM work_orders w "
+             "JOIN customers c ON c.id=w.customer_id WHERE w.status='klar' AND w.ready_at IS NOT NULL "
+             "AND COALESCE(w.return_method, 'hamtas') <> 'post' AND w.pickup_reminders < 2 "
+             "AND c.email IS NOT NULL AND c.email <> ''")
+    sent = 0
+    for w in rows:
+        if not pickup_reminder_due(w["ready_at"], w["pickup_reminders"], days, n):
+            continue
+        # Räkna upp först: hellre en missad påminnelse än samma mejl två gånger
+        x("UPDATE work_orders SET pickup_reminders=pickup_reminders+1 WHERE id=? AND pickup_reminders=?",
+          (w["id"], w["pickup_reminders"]))
+        paras = [f"Hej {w['customer_name']}! {w['item']} har varit klar sedan "
+                 f"{fmt_dt(w['ready_at'], False)} och väntar på dig."]
+        if opening_hours_text():
+            paras.append(f"Öppettider: {opening_hours_text()}.")
+        if w["pickup_reminders"]:
+            paras.append("Hör av dig om du inte kan hämta, så hittar vi en lösning.")
+        # Hämtkoden står bara på mottagningssedeln – den mejlas aldrig
+        details = [("Ärende", w["number"])]
+        if s.get("address"):
+            details.append(("Adress", s["address"]))
+        mail_customer(w["customer_email"], f"Påminnelse: {w['item']} väntar på dig – {s['business_name']}",
+                      "hamtpaminnelse", heading="Din reparation väntar på dig", paragraphs=paras, details=details,
+                      button=("Visa ärendet", f"{base_url()}{url_for('status', token=w['token'])}"))
+        x("INSERT INTO wo_events(work_order_id, created_at, text, public) VALUES (?,?,?,0)",
+          (w["id"], now_s(), "Påminnelse om hämtning skickad."))
+        sent += 1
+    return sent
+
+
 # ---------------------------------------------------------------------------
 # Mallhjälpare
 # ---------------------------------------------------------------------------
@@ -868,7 +923,7 @@ def age_text(val):
 
 
 def icon(name, cls=""):
-    return Markup(f'<svg class="i {cls}" aria-hidden="true"><use href="/static/icons.svg#{name}"></use></svg>')
+    return Markup(f'<svg class="i {cls}" aria-hidden="true"><use href="/static/icons.svg?v={VERSION}#{name}"></use></svg>')
 
 
 app.jinja_env.filters.update(age=age_text, dropoff=lambda v, mode=None: fmt_dropoff(v, mode),
@@ -1279,9 +1334,11 @@ def status(token):
         abort(429)
     wo, booking = _status_context(token)
     events = lines = []
-    totals = None
+    totals = unpaid = None
     if wo:
         events = q("SELECT * FROM wo_events WHERE work_order_id=? AND public=1 ORDER BY id DESC", (wo["id"],))
+        unpaid = q("SELECT number, token, total, due_date FROM invoices WHERE work_order_id=? AND kind='faktura' "
+                   "AND status='obetald' ORDER BY id DESC", (wo["id"],), one=True)
         lines = q("SELECT * FROM wo_lines WHERE work_order_id=? ORDER BY id", (wo["id"],))
         totals = wo_totals(wo, lines)
     service = None
@@ -1289,7 +1346,8 @@ def status(token):
     if sid:
         service = q("SELECT * FROM services WHERE id=?", (sid,), one=True)
     return render_template("public/status.html", wo=wo, booking=booking, events=events, lines=lines,
-                           totals=totals, token=token, is_new=request.args.get("ny"), service=service)
+                           totals=totals, token=token, is_new=request.args.get("ny"), service=service,
+                           unpaid=unpaid)
 
 
 def ics_escape(v):
@@ -1528,9 +1586,13 @@ def dashboard():
                f"AND w.due_date < ? ORDER BY w.due_date", (*WO_OPEN, today)):
         attention.append((w, f"Försenad – utlovad {fmt_dt(w['due_date'], False)}"))
     seen = {w["id"] for w, _ in attention}
-    for w in q(base + "WHERE w.status='klar' AND w.updated_at < ? ORDER BY w.updated_at", (week_ago,)):
+    for w in q(base + "WHERE w.status='klar' AND COALESCE(w.ready_at, w.updated_at) < ? "
+               "ORDER BY COALESCE(w.ready_at, w.updated_at)", (week_ago,)):
         if w["id"] not in seen:
-            attention.append((w, f"Klar men inte hämtad på {age_text(w['updated_at'])}"))
+            since = w["ready_at"] or w["updated_at"]
+            what = "skickad" if w["return_method"] == "post" else "hämtad"
+            reminded = {0: "", 1: " (påminnelse skickad)"}.get(w["pickup_reminders"], " (två påminnelser skickade)")
+            attention.append((w, f"Klar men inte {what} på {age_text(since)}{reminded}"))
             seen.add(w["id"])
     for w in q(base + "WHERE w.status='offert' AND w.updated_at < ?", ((now() - timedelta(days=3)).isoformat(sep=" "),)):
         if w["id"] not in seen:
@@ -2036,6 +2098,8 @@ def wo_set_status(wid):
                    (new, now_s(), now_s() if new in ("utlamnad", "avbruten") else None, wid))
         if new == "utlamnad":
             start_warranty(db, wo)
+        if new == "klar" and wo["status"] != "klar":
+            db.execute("UPDATE work_orders SET ready_at=?, pickup_reminders=0 WHERE id=?", (now_s(), wid))
         text = f"Status: {WO_STATUS_LABEL[new]}." + (f" {msg}" if msg else "")
         if new == "offert":
             text += f" Offert: {fmt_money(wo['price_quote'])}."
@@ -2052,6 +2116,11 @@ def wo_set_status(wid):
                 (wo["diagnosis"] or "") + f" Pris: {fmt_money(wo['price_quote'])}.",
                 "Godkänn med ett klick så sätter vi igång."]
             button = ("Visa och godkänn offerten", link)
+        elif new == "klar" and wo["return_method"] == "post":
+            heading, paras = "Klart!", [
+                f"Hej {name}! {wo['item']} är klar. Vi packar och skickar tillbaka den, och du får spårningsnumret "
+                "när paketet är lämnat."]
+            button = ("Visa ärendet och kostnad", link)
         elif new == "klar":
             heading, paras = "Klart för hämtning!", [
                 f"Hej {name}! {wo['item']} är klar och kan hämtas."
@@ -2063,7 +2132,7 @@ def wo_set_status(wid):
         if msg:
             paras.append(msg)
         details = [("Ärende", wo["number"]), ("Status", WO_STATUS_LABEL[new])]
-        if s.get("address") and new == "klar":
+        if s.get("address") and new == "klar" and wo["return_method"] != "post":
             details.append(("Adress", s["address"]))
         mail_customer(wo["customer_email"], f"{wo['number']}: {WO_STATUS_LABEL[new]} – {s['business_name']}",
                       f"status_{new}", heading=heading, paragraphs=paras, details=details, button=button)
@@ -2352,12 +2421,14 @@ def customer_detail(cid):
 def customer_export(cid):
     c = q("SELECT * FROM customers WHERE id=?", (cid,), one=True) or abort(404)
     data = {"kund": dict(c),
-            "bokningar": [dict(r) for r in q("SELECT category, item, description, slot_start, status, created_at "
+            "bokningar": [dict(r) for r in q("SELECT category, item, description, slot_start, status, created_at, "
+                                              "dropoff_mode, return_address, ship_tracking, early_start_at "
                                               "FROM bookings WHERE customer_id=?", (cid,))],
             "arbetsordrar": []}
     for w in q("SELECT * FROM work_orders WHERE customer_id=?", (cid,)):
         d = {k: w[k] for k in ("number", "category", "item", "serial", "problem", "diagnosis", "status",
-                               "created_at", "closed_at")}
+                               "created_at", "closed_at", "warranty_until", "return_method", "return_address",
+                               "inbound_tracking", "return_tracking")}
         d["handelser"] = [dict(e) for e in q("SELECT created_at, text FROM wo_events WHERE work_order_id=? AND public=1",
                                              (w["id"],))]
         data["arbetsordrar"].append(d)
@@ -2368,13 +2439,20 @@ def customer_export(cid):
 
 
 def anonymize_customer(db, cid):
+    """Tar bort personuppgifter. Returnerar fotofiler som ska raderas när transaktionen är klar."""
     # Fakturor/kvitton (tabellen invoices) har en låst kopia av kunduppgifterna och sparas i 7 år
     # enligt bokföringslagen – de rörs inte här (rättslig förpliktelse går före radering).
     db.execute("UPDATE customers SET name='Anonymiserad kund', email=NULL, phone=NULL, notes=NULL, address=NULL, "
                "org_number=NULL, anonymized=1 "
                "WHERE id=?", (cid,))
-    db.execute("UPDATE bookings SET description='(raderad)' WHERE customer_id=?", (cid,))
-    db.execute("UPDATE work_orders SET serial=NULL WHERE customer_id=?", (cid,))
+    db.execute("UPDATE bookings SET description='(raderad)', return_address=NULL, ship_tracking=NULL "
+               "WHERE customer_id=?", (cid,))
+    db.execute("UPDATE work_orders SET serial=NULL, return_address=NULL, inbound_tracking=NULL, return_tracking=NULL "
+               "WHERE customer_id=?", (cid,))
+    rows = db.execute("SELECT file, thumb FROM wo_photos WHERE work_order_id IN "
+                      "(SELECT id FROM work_orders WHERE customer_id=?)", (cid,)).fetchall()
+    db.execute("DELETE FROM wo_photos WHERE work_order_id IN (SELECT id FROM work_orders WHERE customer_id=?)", (cid,))
+    return [n for r in rows for n in (r["file"], r["thumb"])]
 
 
 @app.route("/admin/kunder/<int:cid>/anonymisera", methods=["POST"])
@@ -2387,7 +2465,8 @@ def customer_anonymize(cid):
         return redirect(url_for("customer_detail", cid=cid))
     db = get_db()
     with db:
-        anonymize_customer(db, cid)
+        files = anonymize_customer(db, cid)
+    photos.delete_files(files)
     flash("Kunden är anonymiserad. Arbetsordrarna finns kvar för statistik, utan personuppgifter.")
     return redirect(url_for("customers_list"))
 
@@ -2401,9 +2480,11 @@ def purge_old():
     rows = db.execute(f"SELECT id FROM customers WHERE anonymized=0 AND COALESCE(last_activity, created_at) < ? "
                       f"AND id NOT IN (SELECT customer_id FROM work_orders WHERE customer_id IS NOT NULL AND status IN "
                       f"({','.join('?' * len(WO_OPEN))}))", (cutoff, *WO_OPEN)).fetchall()
+    files = []
     with db:
         for r in rows:
-            anonymize_customer(db, r["id"])
+            files += anonymize_customer(db, r["id"])
+    photos.delete_files(files)
     flash(f"{len(rows)} kund(er) utan aktivitet på {months} månader har anonymiserats.")
     return redirect(url_for("settings_page"))
 
@@ -2652,7 +2733,7 @@ def settings_page():
 SETTINGS_SECTIONS = {
     "verkstad": ["business_name", "tagline", "address", "contact_email", "contact_phone", "public_url",
                  "labor_rate", "categories", "accent_color", "retention_months", "print_on_intake", "intake_terms"],
-    "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "booking_intro", "response_promise",
+    "bokning": ["booking_enabled", "auto_confirm", "reminder_enabled", "pickup_reminder_days", "booking_intro", "response_promise",
                 "capacity_hours_week", "default_est_minutes", "express_fee_per_day", "min_lead_days",
                 "ready_days_window", "allow_by_agreement",
                 "post_enabled", "post_address", "post_transit_days", "return_shipping_fee", "post_instructions",
@@ -2884,6 +2965,9 @@ def _reminder_loop():
                 n = send_due_reminders()
                 if n:
                     log.info("Skickade %d påminnelser", n)
+                n = send_pickup_reminders()
+                if n:
+                    log.info("Skickade %d hämtpåminnelser", n)
         except Exception:  # noqa: BLE001
             log.exception("Påminnelser misslyckades")
 
@@ -2905,6 +2989,7 @@ if os.environ.get("BACKGROUND_JOBS", "1") == "1":
 
 sys.modules.setdefault("app", sys.modules[__name__])  # så att finance hittar samma modul även vid python app.py
 import finance  # noqa: E402,F401 – fakturor, kvitton och utgifter (registrerar sina routes)
+import photos  # noqa: E402 – foton på arbetsordrar
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)
